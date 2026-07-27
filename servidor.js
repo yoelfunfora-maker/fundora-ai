@@ -4,7 +4,9 @@ const app = express();
 app.use(express.json({ limit: "10mb" }));
 
 const PORT = process.env.PORT || 3000;
-const HF_TOKEN = process.env.HF_TOKEN || "";
+const HF_TOKEN = process.env.HF_TOKEN || ""; // legacy
+const CF_ACCOUNT_ID = process.env.CF_ACCOUNT_ID || "";
+const CF_API_TOKEN = process.env.CF_TOKEN || "";
 const NL = String.fromCharCode(10);
 
 const MODELOS = {
@@ -58,14 +60,24 @@ setInterval(function() {
 }, 3600000);
 
 async function consultarHF(messages, modeloKey) {
-  const modelo = MODELOS[modeloKey] || MODELOS.rapido;
-  const resp = await fetch("https://router.huggingface.co/v1/chat/completions", {
+  const CF_ACCOUNT_ID = process.env.CF_ACCOUNT_ID || "";
+  const CF_TOKEN = process.env.CF_TOKEN || "";
+  // Mapa de modelos Cloudflare AI
+  const CF_MODELOS = {
+    rapido: "@cf/qwen/qwen2.5-7b-instruct",
+    potente: "@cf/meta/llama-3.3-70b-instruct-fp8-fast",
+    codigo: "@cf/qwen/qwen2.5-coder-32b-instruct",
+    analisis: "@cf/meta/llama-3.3-70b-instruct-fp8-fast"
+  };
+  const modelo = CF_MODELOS[modeloKey] || CF_MODELOS.rapido;
+  const url = "https://api.cloudflare.com/client/v4/accounts/" + CF_ACCOUNT_ID + "/ai/run/" + modelo;
+  const resp = await fetch(url, {
     method: "POST",
-    headers: { "Authorization": "Bearer " + HF_TOKEN, "Content-Type": "application/json" },
-    body: JSON.stringify({ model: modelo, messages: messages, max_tokens: 2000, temperature: 0.7 })
+    headers: { "Authorization": "Bearer " + CF_TOKEN, "Content-Type": "application/json" },
+    body: JSON.stringify({ messages: messages, max_tokens: 2000 })
   });
   const data = await resp.json();
-  if (data.choices && data.choices[0]) return data.choices[0].message.content;
+  if (data.result && data.result.response) return data.result.response;
   throw new Error(JSON.stringify(data));
 }
 

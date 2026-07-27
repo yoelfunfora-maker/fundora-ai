@@ -144,11 +144,7 @@ const conocimientoBase = {}; // Base de conocimiento por agente
 function getMemoria(sessionId, agenteId) {
   const agente = AGENTES[agenteId] || AGENTES.general;
   if (!memorias[sessionId]) {
-    const systemConConocimiento = agente.system + 
-      (conocimientoBase[agenteId] ? "
-
-CONOCIMIENTO ADICIONAL:
-" + conocimientoBase[agenteId] : "");
+    const systemConConocimiento = agente.system + (conocimientoBase[agenteId] ? " CONOCIMIENTO ADICIONAL: " + conocimientoBase[agenteId] : "");
     memorias[sessionId] = {
       agenteId,
       historial: [{ role: "system", content: systemConConocimiento }],

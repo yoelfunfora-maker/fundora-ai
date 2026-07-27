@@ -3,6 +3,15 @@ const fetch = require("node-fetch");
 const app = express();
 app.use(express.json({ limit: "10mb" }));
 
+// CORS — permite peticiones desde PAS y cualquier origen
+app.use(function(req, res, next) {
+  res.header("Access-Control-Allow-Origin", "*");
+  res.header("Access-Control-Allow-Methods", "GET, POST, PUT, DELETE, OPTIONS");
+  res.header("Access-Control-Allow-Headers", "Origin, X-Requested-With, Content-Type, Accept, Authorization");
+  if (req.method === "OPTIONS") { return res.sendStatus(200); }
+  next();
+});
+
 const PORT = process.env.PORT || 3000;
 const HF_TOKEN = process.env.HF_TOKEN || ""; // legacy
 const CF_ACCOUNT_ID = process.env.CF_ACCOUNT_ID || "";

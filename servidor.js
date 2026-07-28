@@ -1,5 +1,6 @@
 const express = require("express");
 const fetch = require("node-fetch");
+const cheerio = require("cheerio");
 const app = express();
 app.use(express.json({ limit: "10mb" }));
 
@@ -262,6 +263,92 @@ app.get("/stats", function(req, res) {
     uptime_horas: (process.uptime() / 3600).toFixed(2)
   });
 });
+
+
+// ════ RASTREADOR INTELIGENTE ════
+const FUENTES_CONFIABLES = [
+  "wikipedia.org",
+  "github.com",
+  "developer.mozilla.org",
+  "stackoverflow.com",
+  "espn.com",
+  "the-odds-api.com",
+  "cloudflare.com",
+  "supabase.com",
+  "brave.com"
+];
+
+function esFuenteConfiable(url) {
+  return FUENTES_CONFIABLES.some(dominio => url.includes(dominio));
+}
+
+async function ejecutarRastreador() {
+  console.log("🔍 Rastreador iniciando búsqueda en fuentes confiables...");
+  const temas = [
+    "inteligencia artificial 2026",
+    "nuevas APIs gratuitas",
+    "trading algorítmico",
+    "apuestas deportivas machine learning",
+    "desarrollo web tendencias"
+  ];
+  
+  for (const tema of temas) {
+    try {
+      const busqueda = `https://api.brave.com/search?q=${encodeURIComponent(tema)}&site=wikipedia.org,github.com,developer.mozilla.org`;
+      const resp = await fetch(busqueda, {
+        headers: { "Accept": "application/json" }
+      });
+      if (!resp.ok) continue;
+      const datos = await resp.json();
+      const resultados = datos.web?.results || [];
+      
+      for (const r of resultados.slice(0, 3)) {
+        if (!esFuenteConfiable(r.url)) continue;
+        try {
+          const pageResp = await fetch(r.url, { timeout: 8000 });
+          if (!pageResp.ok) continue;
+          const html = await pageResp.text();
+          const $ = cheerio.load(html);
+          const texto = $("p, h1, h2, h3, li").text().substring(0, 3000);
+          
+          // Guardar en Supabase
+          await fetch(SUPABASE_URL + "/rest/v1/knowledge_base", {
+            method: "POST",
+            headers: {
+              "Content-Type": "application/json",
+              "apikey": SUPABASE_KEY,
+              "Authorization": "Bearer " + SUPABASE_KEY
+            },
+            body: JSON.stringify({
+              fuente: r.url,
+              titulo: r.title || tema,
+              contenido: texto,
+              tema: tema,
+              credibilidad: "alta",
+              fecha: new Date().toISOString()
+            })
+          });
+          console.log("✅ Ingresado:", r.title);
+        } catch(e) {
+          console.warn("Error scraping:", r.url, e.message);
+        }
+      }
+    } catch(e) {
+      console.warn("Error en tema:", tema, e.message);
+    }
+  }
+  console.log("🔍 Rastreador completado.");
+}
+
+// Endpoint para forzar rastreador manualmente
+app.post("/rastreador/forzar", async (req, res) => {
+  res.json({ status: "iniciado", mensaje: "Rastreador ejecutándose en segundo plano." });
+  ejecutarRastreador().catch(e => console.error("Error forzando rastreador:", e.message));
+});
+
+// Programar cada 6 horas
+setInterval(ejecutarRastreador, 6 * 60 * 60 * 1000);
+console.log("🔍 Rastreador programado cada 6 horas.");
 
 app.listen(PORT, function() {
   console.log("FUNDORA AGENCY v2.0 Online - Puerto " + PORT);

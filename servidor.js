@@ -20,13 +20,13 @@ const NL = String.fromCharCode(10);
 
 // Supabase para validar API keys de usuarios registrados
 const SUPABASE_URL = "https://vmjmiabxjmcrovnirbkj.supabase.co";
-const SUPABASE_KEY = process.env.SUPABASE_ANON_KEY || "";
+const SUPABASE_KEY = process.env.SUPABASE_ANON_KEY || ""; // debe coincidir con el env var de Render
 
 // Valida API key y controla trial + limite diario
 // Retorna { ok, error, usuario } 
 async function validarApiKey(apiKey) {
   if (!apiKey) return { ok: false, error: "API key requerida. Registrate en prime-atlantic-solutions.vercel.app/agencia" };
-  if (!SUPABASE_KEY) return { ok: true, usuario: null }; // Sin Supabase configurado, modo libre
+  if (!SUPABASE_KEY) { console.log("AVISO: SUPABASE_ANON_KEY no configurada, modo libre"); return { ok: true, usuario: null }; }
   try {
     const r = await fetch(
       SUPABASE_URL + "/rest/v1/agency_usuarios?api_key=eq." + apiKey + "&select=id,nombre,agente_id,trial_fin,activo,mensajes_hoy,limite_diario,ultimo_reset",

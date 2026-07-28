@@ -18,6 +18,51 @@ const CF_ACCOUNT_ID = process.env.CF_ACCOUNT_ID || "";
 const CF_API_TOKEN = process.env.CF_TOKEN || "";
 const NL = String.fromCharCode(10);
 
+// Supabase para validar API keys de usuarios registrados
+const SUPABASE_URL = "https://vmjmiabxjmcrovnirbkj.supabase.co";
+const SUPABASE_KEY = process.env.SUPABASE_ANON_KEY || "";
+
+// Valida API key y controla trial + limite diario
+// Retorna { ok, error, usuario } 
+async function validarApiKey(apiKey) {
+  if (!apiKey) return { ok: false, error: "API key requerida. Registrate en prime-atlantic-solutions.vercel.app/agencia" };
+  if (!SUPABASE_KEY) return { ok: true, usuario: null }; // Sin Supabase configurado, modo libre
+  try {
+    const r = await fetch(
+      SUPABASE_URL + "/rest/v1/agency_usuarios?api_key=eq." + apiKey + "&select=id,nombre,agente_id,trial_fin,activo,mensajes_hoy,limite_diario,ultimo_reset",
+      { headers: { "apikey": SUPABASE_KEY, "Authorization": "Bearer " + SUPABASE_KEY } }
+    );
+    const data = await r.json();
+    if (!data || data.length === 0) return { ok: false, error: "API key invalida. Verifica tu clave en /agencia" };
+    const u = data[0];
+    if (!u.activo) return { ok: false, error: "Cuenta suspendida. Contacta soporte." };
+    // Verificar trial
+    if (new Date(u.trial_fin) < new Date()) return { ok: false, error: "Trial vencido. Cotiza tu plan en prime-atlantic-solutions.vercel.app/agencia" };
+    // Reset diario si cambio de fecha
+    const hoy = new Date().toISOString().slice(0, 10);
+    if (u.ultimo_reset !== hoy) {
+      await fetch(SUPABASE_URL + "/rest/v1/agency_usuarios?id=eq." + u.id, {
+        method: "PATCH",
+        headers: { "apikey": SUPABASE_KEY, "Authorization": "Bearer " + SUPABASE_KEY, "Content-Type": "application/json" },
+        body: JSON.stringify({ mensajes_hoy: 0, ultimo_reset: hoy })
+      });
+      u.mensajes_hoy = 0;
+    }
+    // Verificar limite diario
+    if (u.mensajes_hoy >= u.limite_diario) return { ok: false, error: "Limite diario de " + u.limite_diario + " mensajes alcanzado. Se renueva manana." };
+    // Incrementar contador
+    await fetch(SUPABASE_URL + "/rest/v1/agency_usuarios?id=eq." + u.id, {
+      method: "PATCH",
+      headers: { "apikey": SUPABASE_KEY, "Authorization": "Bearer " + SUPABASE_KEY, "Content-Type": "application/json" },
+      body: JSON.stringify({ mensajes_hoy: u.mensajes_hoy + 1, total_mensajes: (u.total_mensajes || 0) + 1 })
+    });
+    return { ok: true, usuario: u };
+  } catch(e) {
+    console.error("Error validando API key:", e.message);
+    return { ok: true, usuario: null }; // En caso de error de Supabase, no bloquear
+  }
+}
+
 const MODELOS = {
   rapido: "Qwen/Qwen2.5-7B-Instruct",
   potente: "moonshotai/Kimi-K2-Instruct-0905",
@@ -105,6 +150,15 @@ app.post("/chat", async function(req, res) {
   try {
     const { mensaje, agente = "general", sessionId = "default" } = req.body;
     if (!mensaje) return res.status(400).json({ error: "mensaje requerido" });
+
+    // Validar API key si viene en el header o en el body
+    // CEO, admin y llamadas internas (PAS, BetGroup) pasan sin limite
+    const apiKey = req.headers["x-api-key"] || req.body.api_key;
+    const esCEO = req.headers["x-role"] === "ceo" || req.headers["x-role"] === "admin";
+    if (apiKey && !esCEO) {
+      const validacion = await validarApiKey(apiKey);
+      if (!validacion.ok) return res.status(403).json({ error: validacion.error });
+    }
     const config = AGENTES[agente] || AGENTES.general;
     const memoria = getMemoria(sessionId, agente);
     memoria.historial.push({ role: "user", content: mensaje });

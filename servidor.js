@@ -73,6 +73,17 @@ const MODELOS = {
 
 const AGENTES = {
 
+  corrector: {
+    nombre: "Corrector de Errores",
+    modelo: "@cf/meta/llama-3.1-8b-instruct",
+    system: `Eres el Corrector de Fundora Agency AI. Tu única función es analizar errores y proponer soluciones concretas.
+Cuando recibas un mensaje de error:
+1. Identifica la causa raíz.
+2. Propone UNA solución específica (comando exacto o modificación de código).
+3. Responde en formato JSON: {"diagnostico":"...", "solucion":"..."}
+Sé conciso y técnico. No añadas explicaciones innecesarias.`
+  },
+
   ceo: {
     nombre: "CEO Fundora Prime",
     modelo: "@cf/meta/llama-3.3-70b-instruct-fp8-fast",
@@ -485,25 +496,51 @@ app.get("/dashboard", (req, res) => {
 const SAFE_ROOT = path.join(require("os").homedir(), "fundora-ai");
 
 app.ws("/terminal", (ws, req) => {
-  ws.send("Fundora Agency AI Terminal\n$ ");
-  ws.on("message", (msg) => {
+  ws.send("Fundora Agency AI Terminal\\n$ ");
+  ws.on("message", async (msg) => {
     const comando = msg.toString().trim();
     if (!comando) return;
     // Seguridad básica
     const dangerous = /rm\s+-rf\s+\/|sudo|chmod\s+777|wget|curl.*\|.*sh/i;
     if (dangerous.test(comando)) {
-      ws.send("Comando bloqueado por seguridad.\n$ ");
+      ws.send("Comando bloqueado por seguridad.\\n$ ");
       return;
     }
     exec(comando, {
       cwd: SAFE_ROOT,
       timeout: 15000,
       maxBuffer: 1024 * 500
-    }, (error, stdout, stderr) => {
+    }, async (error, stdout, stderr) => {
       if (stdout) ws.send(stdout);
       if (stderr) ws.send(stderr);
-      if (error) ws.send(error.message + "\n");
-      ws.send("$ ");
+      if (error) {
+        ws.send("\\n❌ Error: " + error.message + "\\n");
+        ws.send("🧠 Consultando al Corrector...\\n");
+        const correccion = await consultarCorrector(error.message, comando);
+        ws.send("📋 Diagnóstico: " + correccion.diagnostico + "\\n");
+        ws.send("💡 Solución sugerida: " + correccion.solucion + "\\n");
+        await registrarError(comando, error.message, correccion.solucion, false);
+        // Reintentar con la solución sugerida (si es un comando único)
+        if (correccion.solucion && correccion.solucion.startsWith("Ejecutar:")) {
+          const nuevoComando = correccion.solucion.replace("Ejecutar:", "").trim();
+          ws.send("🔄 Reintentando: " + nuevoComando + "\\n");
+          exec(nuevoComando, {
+            cwd: SAFE_ROOT,
+            timeout: 15000,
+            maxBuffer: 1024 * 500
+          }, (err2, stdout2, stderr2) => {
+            if (stdout2) ws.send(stdout2);
+            if (stderr2) ws.send(stderr2);
+            if (err2) ws.send("❌ Reintento fallido: " + err2.message + "\\n");
+            else ws.send("✅ Reintento exitoso.\\n");
+            ws.send("$ ");
+          });
+        } else {
+          ws.send("$ ");
+        }
+      } else {
+        ws.send("$ ");
+      }
     });
   });
   ws.on("close", () => console.log("Terminal WebSocket cerrada."));
@@ -676,6 +713,59 @@ async function analizarAprendizaje() {
 // Programar análisis de aprendizaje cada 24 horas
 setInterval(analizarAprendizaje, 24 * 60 * 60 * 1000);
 console.log("📊 Análisis de aprendizaje programado cada 24 horas.");
+
+
+// ════ SISTEMA DE SUBSANACIÓN DE ERRORES ════
+async function consultarCorrector(errorMsg, comando) {
+  try {
+    const agente = AGENTES.corrector;
+    const prompt = `Error al ejecutar: "${comando}"\nMensaje: ${errorMsg}\nAnaliza y propone solución en JSON.`;
+    const url = "https://api.cloudflare.com/client/v4/accounts/" + CF_ACCOUNT_ID + "/ai/run/" + agente.modelo;
+    const resp = await fetch(url, {
+      method: "POST",
+      headers: {
+        "Authorization": "Bearer " + CF_TOKEN,
+        "Content-Type": "application/json"
+      },
+      body: JSON.stringify({
+        messages: [
+          { role: "system", content: agente.system },
+          { role: "user", content: prompt }
+        ],
+        max_tokens: 300
+      })
+    });
+    const data = await resp.json();
+    if (data.success) {
+      return JSON.parse(data.result.response);
+    }
+  } catch(e) {
+    console.warn("Error consultando corrector:", e.message);
+  }
+  return { diagnostico: "No se pudo analizar el error.", solucion: "Revisar manualmente." };
+}
+
+async function registrarError(comando, errorMsg, solucion, resuelto = false) {
+  try {
+    await fetch(SUPABASE_URL + "/rest/v1/error_logs", {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        "apikey": SUPABASE_KEY,
+        "Authorization": "Bearer " + SUPABASE_KEY
+      },
+      body: JSON.stringify({
+        comando: comando,
+        error: errorMsg,
+        solucion: solucion,
+        resuelto: resuelto,
+        timestamp: new Date().toISOString()
+      })
+    });
+  } catch(e) {
+    console.warn("Error registrando error:", e.message);
+  }
+}
 
 app.listen(PORT, function() {
   console.log("FUNDORA AGENCY v2.0 Online - Puerto " + PORT);

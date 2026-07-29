@@ -421,7 +421,7 @@ app.post("/generar/img2img", upload.single("imagen"), async (req, res) => {
   if (!req.file || !prompt) return res.status(400).json({ error: "Falta imagen y/o prompt. Asegúrate de enviar el archivo con el campo 'imagen'." });
   try {
     const imageBase64 = req.file.buffer.toString('base64');
-    const url = "https://api.cloudflare.com/client/v4/accounts/" + CF_ACCOUNT_ID + "/ai/run/@cf/stabilityai/stable-diffusion-xl-base-1.0-img2img";
+    const url = "https://api.cloudflare.com/client/v4/accounts/" + CF_ACCOUNT_ID + "/ai/run/@cf/runwayml/stable-diffusion-v1-5-img2img";
     const resp = await fetch(url, {
       method: "POST",
       headers: { "Authorization": "Bearer " + CF_TOKEN, "Content-Type": "application/json" },

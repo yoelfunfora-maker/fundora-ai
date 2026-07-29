@@ -73,6 +73,14 @@ const MODELOS = {
 
 const AGENTES = {
 
+  verificador: {
+    nombre: "Verificador de Calidad",
+    modelo: "@cf/meta/llama-3.1-8b-instruct",
+    system: `Eres el Verificador de Fundora Agency AI. Revisas cualquier salida o respuesta y determinas si es correcta, completa y sin errores.
+Responde en formato JSON: {"resultado":"VERIFICADO"|"FALLIDO", "razon":"..."}
+Sé estricto y conciso.`
+  },
+
   corrector: {
     nombre: "Corrector de Errores",
     modelo: "@cf/meta/llama-3.1-8b-instruct",
@@ -766,6 +774,44 @@ async function registrarError(comando, errorMsg, solucion, resuelto = false) {
     console.warn("Error registrando error:", e.message);
   }
 }
+
+
+// ════ SISTEMA DE VERIFICACIÓN ════
+async function verificarResultado(texto, tipo = "general") {
+  try {
+    const agente = AGENTES.verificador;
+    const prompt = `Tipo: ${tipo}\nContenido a verificar:\n${texto.substring(0, 2000)}\nResponde en JSON.`;
+    const url = "https://api.cloudflare.com/client/v4/accounts/" + CF_ACCOUNT_ID + "/ai/run/" + agente.modelo;
+    const resp = await fetch(url, {
+      method: "POST",
+      headers: {
+        "Authorization": "Bearer " + CF_TOKEN,
+        "Content-Type": "application/json"
+      },
+      body: JSON.stringify({
+        messages: [
+          { role: "system", content: agente.system },
+          { role: "user", content: prompt }
+        ],
+        max_tokens: 200
+      })
+    });
+    const data = await resp.json();
+    if (data.success) {
+      return JSON.parse(data.result.response);
+    }
+  } catch(e) {
+    console.warn("Error en verificación:", e.message);
+  }
+  return { resultado: "FALLIDO", razon: "No se pudo verificar automáticamente." };
+}
+
+app.post("/verificar", async (req, res) => {
+  const { texto, tipo } = req.body;
+  if (!texto) return res.status(400).json({ error: "Falta texto a verificar" });
+  const resultado = await verificarResultado(texto, tipo || "general");
+  res.json(resultado);
+});
 
 app.listen(PORT, function() {
   console.log("FUNDORA AGENCY v2.0 Online - Puerto " + PORT);

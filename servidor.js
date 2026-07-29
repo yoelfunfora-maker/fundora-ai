@@ -589,22 +589,61 @@ app.get("/generar/estado/:tareaId", (req, res) => {
 app.post("/generar/imagen-ilimitado", async (req, res) => {
   const { prompt } = req.body;
   if (!prompt) return res.status(400).json({ error: "Falta prompt" });
+  
+  // Pool de modelos públicos gratuitos (sin API key)
+  const modelos = [
+    "black-forest-labs/FLUX.1-dev",
+    "stabilityai/stable-diffusion-xl-base-1.0",
+    "nota-ai/bk-sdm-small"
+  ];
+  
+  let ultimoError = null;
+  
+  for (const modelo of modelos) {
+    try {
+      const resp = await fetch("https://router.huggingface.co/hf-inference/models/" + modelo, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ inputs: prompt })
+      });
+      if (resp.ok) {
+        const buffer = await resp.buffer();
+        const base64 = buffer.toString('base64');
+        return res.json({ status: "ok", imagen: "data:image/png;base64," + base64, modelo });
+      }
+      // Si falla, probar el siguiente
+      console.warn("Modelo " + modelo + " no disponible, probando siguiente...");
+    } catch(e) {
+      ultimoError = e.message;
+      continue;
+    }
+  }
+  
+  // Fallback: usar Cloudflare AI si todos fallan
   try {
-    const resp = await fetch("https://router.huggingface.co/hf-inference/models/nota-ai/bk-sdm-small", {
+    const url = "https://api.cloudflare.com/client/v4/accounts/" + CF_ACCOUNT_ID + "/ai/run/@cf/stabilityai/stable-diffusion-xl-base-1.0";
+    const resp = await fetch(url, {
       method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ inputs: prompt })
+      headers: { "Authorization": "Bearer " + CF_TOKEN, "Content-Type": "application/json" },
+      body: JSON.stringify({ prompt, num_steps: 20 })
     });
-    if (resp.ok) {
-      const buffer = await resp.buffer();
-      const base64 = buffer.toString('base64');
-      res.json({ status: "ok", imagen: "data:image/png;base64," + base64 });
+    const contentType = resp.headers.get("content-type") || "";
+    if (contentType.includes("application/json")) {
+      const data = await resp.json();
+      if (data.success) {
+        const base64 = Buffer.from(data.result.image, 'base64').toString('base64');
+        return res.json({ status: "ok", imagen: "data:image/png;base64," + base64, modelo: "cloudflare" });
+      }
     } else {
-      res.json({ status: "error", mensaje: "Modelo no disponible temporalmente." });
+      const buffer = await resp.arrayBuffer();
+      const base64 = Buffer.from(buffer).toString('base64');
+      return res.json({ status: "ok", imagen: "data:image/png;base64," + base64, modelo: "cloudflare" });
     }
   } catch(e) {
-    res.status(500).json({ error: e.message });
+    ultimoError = e.message;
   }
+  
+  res.status(500).json({ error: "Todos los modelos fallaron. Último error: " + ultimoError });
 });
 
 app.listen(PORT, () => console.log("✅ FUNDORA AGENCY v3.0 en puerto " + PORT + " | Agentes: " + Object.keys(AGENTES).length));

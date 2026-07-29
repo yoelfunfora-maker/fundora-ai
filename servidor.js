@@ -590,7 +590,7 @@ app.post("/generar/imagen-ilimitado", async (req, res) => {
   const { prompt } = req.body;
   if (!prompt) return res.status(400).json({ error: "Falta prompt" });
   try {
-    const resp = await fetch("https://api-inference.huggingface.co/models/nota-ai/bk-sdm-small", {
+    const resp = await fetch("https://router.huggingface.co/hf-inference/models/nota-ai/bk-sdm-small", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ inputs: prompt })

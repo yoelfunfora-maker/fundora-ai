@@ -42,7 +42,9 @@
                 <div class="msg agent"><strong>Fundora AI:</strong> Dashboard conectado. Selecciona un agente y escribe tu mensaje.</div>
             </div>
             <div id="chat-input-area" style="flex-wrap:wrap;">
-                <button onclick="generarImagen()" style="background:#d4af37;color:#000;border:none;border-radius:8px;padding:6px 12px;font-weight:bold;cursor:pointer;margin-right:8px;">🖼️ Generar Imagen</button>
+                <button onclick="generarImagen()" style="background:#d4af37;color:#000;border:none;border-radius:8px;padding:6px 12px;font-weight:bold;cursor:pointer;margin-right:8px;">🖼️ Imagen</button>
+                <button onclick="generarVideo()" style="background:#8b5cf6;color:#fff;border:none;border-radius:8px;padding:6px 12px;font-weight:bold;cursor:pointer;margin-right:8px;">🎬 Video</button>
+                <button onclick="generarPDF()" style="background:#ef4444;color:#fff;border:none;border-radius:8px;padding:6px 12px;font-weight:bold;cursor:pointer;margin-right:8px;">📄 PDF</button>
                 <select id="agente-select">
                     <option value="general">General</option>
                     <option value="ceo">CEO</option>
@@ -248,6 +250,62 @@ async function generarImagen() {
             } catch(e) {
                 hideTyping();
                 addMessage('Error de conexión al generar imagen.', 'agent');
+            } finally {
+                sendBtn.disabled = false;
+            }
+        }
+
+        async function generarVideo() {
+            const msg = input.value.trim();
+            if (!msg) { alert('Escribe un prompt para el video.'); return; }
+            addMessage('🎬 Generando video para: ' + msg, 'user');
+            input.value = '';
+            sendBtn.disabled = true;
+            showTyping();
+            try {
+                const resp = await fetch('/generar/video', {
+                    method: 'POST',
+                    headers: {'Content-Type': 'application/json'},
+                    body: JSON.stringify({ prompt: msg })
+                });
+                const data = await resp.json();
+                hideTyping();
+                if (data.status === 'ok' && data.video) {
+                    addMessage('✅ Video generado (resolución: ' + data.resolucion + ', fps: ' + data.fps + '). Descargar: <a href="' + data.video + '" download="video.mp4">enlace</a>', 'agent');
+                } else {
+                    addMessage('❌ Error: ' + (data.mensaje || 'Desconocido'), 'agent');
+                }
+            } catch(e) {
+                hideTyping();
+                addMessage('Error de conexión al generar video.', 'agent');
+            } finally {
+                sendBtn.disabled = false;
+            }
+        }
+
+        async function generarPDF() {
+            const msg = input.value.trim();
+            if (!msg) { alert('Escribe el contenido para el PDF.'); return; }
+            addMessage('📄 Generando PDF...', 'user');
+            input.value = '';
+            sendBtn.disabled = true;
+            showTyping();
+            try {
+                const resp = await fetch('/generar/pdf', {
+                    method: 'POST',
+                    headers: {'Content-Type': 'application/json'},
+                    body: JSON.stringify({ titulo: 'Documento Fundora AI', contenido: msg })
+                });
+                const data = await resp.json();
+                hideTyping();
+                if (data.status === 'ok' && data.pdf) {
+                    addMessage('✅ PDF generado. <a href="' + data.pdf + '" download="' + data.nombre + '">Descargar PDF</a>', 'agent');
+                } else {
+                    addMessage('❌ Error al generar PDF.', 'agent');
+                }
+            } catch(e) {
+                hideTyping();
+                addMessage('Error de conexión al generar PDF.', 'agent');
             } finally {
                 sendBtn.disabled = false;
             }

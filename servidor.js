@@ -22,6 +22,8 @@ const logger = winston.createLogger({
 
 const app = express();
 const multer = require("multer");
+const sharp = require("sharp");
+const PDFDocument = require("pdfkit");
 const upload = multer({ storage: multer.memoryStorage() });
 const expressWs = require("express-ws")(app);
 
@@ -430,7 +432,7 @@ app.get("/dashboard", (req, res) => res.sendFile(path.join(__dirname, "public", 
 
 
 app.post("/generar/imagen", async (req, res) => {
-  const { prompt } = req.body;
+  const { prompt, upscale = false } = req.body;
   if (!prompt) return res.status(400).json({ error: "Falta prompt" });
   try {
     const url = "https://api.cloudflare.com/client/v4/accounts/" + CF_ACCOUNT_ID + "/ai/run/@cf/stabilityai/stable-diffusion-xl-base-1.0";
@@ -945,6 +947,45 @@ app.post("/chat/imagen", async (req, res) => {
       const base64 = Buffer.from(buffer).toString('base64');
       return res.json({ status: "ok", imagen: "data:image/png;base64," + base64, prompt_original: prompt, prompt_optimizado: promptOptimizado });
     }
+  } catch(e) {
+    res.status(500).json({ error: e.message });
+  }
+});
+
+
+// ════ GENERACIÓN DE PDF ════
+app.post("/generar/pdf", async (req, res) => {
+  const { titulo = "Documento", contenido = "", imagen } = req.body;
+  if (!contenido && !imagen) return res.status(400).json({ error: "Falta contenido o imagen" });
+  
+  try {
+    const doc = new PDFDocument({ size: 'A4', margin: 50 });
+    const chunks = [];
+    
+    doc.on('data', chunk => chunks.push(chunk));
+    doc.on('end', () => {
+      const pdfBuffer = Buffer.concat(chunks);
+      const base64 = pdfBuffer.toString('base64');
+      res.json({ status: "ok", pdf: "data:application/pdf;base64," + base64, nombre: titulo + ".pdf" });
+    });
+    
+    // Título
+    doc.fontSize(20).text(titulo, { align: 'center' });
+    doc.moveDown();
+    
+    // Imagen opcional
+    if (imagen) {
+      try {
+        const imgBuffer = Buffer.from(imagen.replace(/^data:image\/\w+;base64,/, ''), 'base64');
+        doc.image(imgBuffer, { fit: [400, 300], align: 'center' });
+        doc.moveDown();
+      } catch(e) { console.warn('Error insertando imagen en PDF:', e.message); }
+    }
+    
+    // Contenido
+    doc.fontSize(12).text(contenido, { align: 'left' });
+    
+    doc.end();
   } catch(e) {
     res.status(500).json({ error: e.message });
   }

@@ -224,7 +224,9 @@ app.post("/chat", async (req, res) => {
       body: JSON.stringify({ messages: memoria.historial, max_tokens: 1000 })
     });
     const data = await resp.json();
-    const respuesta = data.success ? data.result.response : "Error al generar respuesta.";
+    const respuestaRaw = data.success ? data.result.response : "Error al generar respuesta.";
+    // Limpiar escapes Unicode y saltos de línea literales
+    const respuesta = decodeURIComponent(JSON.parse('"' + respuestaRaw.replace(/"/g, '\"') + '"'));
     memoria.historial.push({ role: "assistant", content: respuesta });
     memoria.totalMensajes++;
     guardarMemoria(agente, sessionId, "chat", "AGENTE: " + respuesta);

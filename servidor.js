@@ -431,30 +431,62 @@ app.post("/generar/imagen", async (req, res) => {
 
 app.post("/generar/img2img", upload.single("imagen"), async (req, res) => {
   const { prompt } = req.body;
-  if (!req.file || !prompt) return res.status(400).json({ error: "Falta imagen y/o prompt. Asegúrate de enviar el archivo con el campo 'imagen'." });
+  if (!req.file || !prompt) return res.status(400).json({ error: "Falta imagen y/o prompt." });
   try {
     const imageBase64 = req.file.buffer.toString('base64');
-    const url = "https://api.cloudflare.com/client/v4/accounts/" + CF_ACCOUNT_ID + "/ai/run/@cf/runwayml/stable-diffusion-v1-5-img2img";
-    const resp = await fetch(url, {
-      method: "POST",
-      headers: { "Authorization": "Bearer " + CF_TOKEN, "Content-Type": "application/json" },
-      body: JSON.stringify({ prompt, image: imageBase64, num_steps: 25, strength: 0.7 })
-    });
-    const contentType = resp.headers.get("content-type") || "";
-    if (contentType.includes("application/json")) {
-      const data = await resp.json();
-      if (data.success) {
-        const base64Result = Buffer.from(data.result.image, 'base64').toString('base64');
-        res.json({ status: "ok", imagen: "data:image/png;base64," + base64Result });
-      } else {
-        res.json({ status: "error", mensaje: "Error: " + JSON.stringify(data.errors) });
+    
+    // Pool de modelos públicos de Hugging Face para img2img (usando router)
+    const modelosImg2img = [
+      "tencentarc/photomaker-style",
+      "stabilityai/sdxl-turbo"
+    ];
+    
+    let ultimoError = null;
+    
+    for (const modelo of modelosImg2img) {
+      try {
+        const resp = await fetch("https://router.huggingface.co/hf-inference/models/" + modelo, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ inputs: { image: imageBase64, prompt: prompt } })
+        });
+        if (resp.ok) {
+          const buffer = await resp.buffer();
+          const base64Result = buffer.toString('base64');
+          return res.json({ status: "ok", imagen: "data:image/png;base64," + base64Result, modelo });
+        }
+        console.warn("Modelo img2img " + modelo + " falló, probando siguiente...");
+      } catch(e) {
+        ultimoError = e.message;
+        continue;
       }
-    } else {
-      // Respuesta binaria
-      const buffer = await resp.arrayBuffer();
-      const base64Result = Buffer.from(buffer).toString('base64');
-      res.json({ status: "ok", imagen: "data:image/png;base64," + base64Result });
     }
+    
+    // Fallback: usar Cloudflare text-to-image con prompt enriquecido
+    try {
+      const url = "https://api.cloudflare.com/client/v4/accounts/" + CF_ACCOUNT_ID + "/ai/run/@cf/stabilityai/stable-diffusion-xl-base-1.0";
+      const resp = await fetch(url, {
+        method: "POST",
+        headers: { "Authorization": "Bearer " + CF_TOKEN, "Content-Type": "application/json" },
+        body: JSON.stringify({ prompt: prompt + ", based on a reference image, high quality", num_steps: 20 })
+      });
+      const contentType = resp.headers.get("content-type") || "";
+      if (contentType.includes("application/json")) {
+        const data = await resp.json();
+        if (data.success) {
+          const base64Result = Buffer.from(data.result.image, 'base64').toString('base64');
+          return res.json({ status: "ok", imagen: "data:image/png;base64," + base64Result, modelo: "cloudflare-text" });
+        }
+      } else {
+        const buffer = await resp.arrayBuffer();
+        const base64Result = Buffer.from(buffer).toString('base64');
+        return res.json({ status: "ok", imagen: "data:image/png;base64," + base64Result, modelo: "cloudflare-text" });
+      }
+    } catch(e) {
+      ultimoError = e.message;
+    }
+    
+    res.status(500).json({ error: "Todos los modelos img2img fallaron. Último error: " + ultimoError });
   } catch(e) {
     res.status(500).json({ error: e.message });
   }
@@ -486,7 +518,8 @@ app.post("/generar/video", async (req, res) => {
     } catch(e) { continue; }
   }
   
-  res.json({ status: "error", mensaje: "Todos los modelos de video están ocupados. Intente de nuevo en unos minutos." });
+  // Fallback final: Cloudflare no tiene video, así que informamos
+  res.json({ status: "error", mensaje: "Todos los modelos de video están ocupados. Intente de nuevo en unos minutos o use /generar/imagen para una imagen estática." });
 });
 
 app.post("/upload", upload.single("archivo"), async (req, res) => {

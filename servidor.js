@@ -585,4 +585,26 @@ app.get("/generar/estado/:tareaId", (req, res) => {
   }
 });
 
+
+app.post("/generar/imagen-ilimitado", async (req, res) => {
+  const { prompt } = req.body;
+  if (!prompt) return res.status(400).json({ error: "Falta prompt" });
+  try {
+    const resp = await fetch("https://api-inference.huggingface.co/models/nota-ai/bk-sdm-small", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ inputs: prompt })
+    });
+    if (resp.ok) {
+      const buffer = await resp.buffer();
+      const base64 = buffer.toString('base64');
+      res.json({ status: "ok", imagen: "data:image/png;base64," + base64 });
+    } else {
+      res.json({ status: "error", mensaje: "Modelo no disponible temporalmente." });
+    }
+  } catch(e) {
+    res.status(500).json({ error: e.message });
+  }
+});
+
 app.listen(PORT, () => console.log("✅ FUNDORA AGENCY v3.0 en puerto " + PORT + " | Agentes: " + Object.keys(AGENTES).length));

@@ -133,7 +133,12 @@
             const div = document.createElement('div');
             div.className = 'msg ' + (role === 'user' ? 'user' : 'agent');
             const displayName = role === 'user' ? 'Tú' : (agentNames[agentSelect.value] || agentSelect.value);
-            div.innerHTML = '<strong>' + displayName + ':</strong> ' + text.replace(/\n/g, '<br>');
+            let contenido = text.replace(/\n/g, '<br>');
+            // Detectar si la respuesta contiene una imagen en base64 o URL
+            if (text.startsWith('data:image/') || text.includes('data:image/png;base64,')) {
+                contenido += '<br><img src="' + text.substring(0, 500) + '" style="max-width:300px;border-radius:8px;margin-top:8px;" onerror="this.style.display=\'none\'"/>';
+            }
+            div.innerHTML = '<strong>' + displayName + ':</strong> ' + contenido;
             messagesDiv.appendChild(div);
             messagesDiv.scrollTop = messagesDiv.scrollHeight;
         }

@@ -482,11 +482,31 @@ app.get("/dashboard", (req, res) => {
 });
 
 
+const SAFE_ROOT = path.join(require("os").homedir(), "fundora-ai");
+
 app.ws("/terminal", (ws, req) => {
+  ws.send("Fundora Agency AI Terminal\n$ ");
   ws.on("message", (msg) => {
-    // Por ahora solo eco. En el siguiente turno conectaremos con /exec.
-    ws.send("Recibido: " + msg);
+    const comando = msg.toString().trim();
+    if (!comando) return;
+    // Seguridad básica
+    const dangerous = /rm\s+-rf\s+\/|sudo|chmod\s+777|wget|curl.*\|.*sh/i;
+    if (dangerous.test(comando)) {
+      ws.send("Comando bloqueado por seguridad.\n$ ");
+      return;
+    }
+    exec(comando, {
+      cwd: SAFE_ROOT,
+      timeout: 15000,
+      maxBuffer: 1024 * 500
+    }, (error, stdout, stderr) => {
+      if (stdout) ws.send(stdout);
+      if (stderr) ws.send(stderr);
+      if (error) ws.send(error.message + "\n");
+      ws.send("$ ");
+    });
   });
+  ws.on("close", () => console.log("Terminal WebSocket cerrada."));
 });
 
 app.listen(PORT, function() {

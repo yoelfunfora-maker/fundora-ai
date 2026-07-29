@@ -675,4 +675,55 @@ app.post("/generar/imagen-ilimitado", async (req, res) => {
   res.status(500).json({ error: "Todos los modelos fallaron. Último error: " + ultimoError });
 });
 
+
+// ════ CACHÉ CON TTL PARA REDUCIR CONSULTAS A SUPABASE ════
+const cacheAgentes = {};
+
+async function getConocimientoCached(agenteId) {
+  const ahora = Date.now();
+  const cacheEntry = cacheAgentes[agenteId];
+  const TTL = 60 * 1000; // 60 segundos
+
+  if (cacheEntry && (ahora - cacheEntry.timestamp) < TTL) {
+    return cacheEntry.data;
+  }
+
+  // Si no hay caché o expiró, consultar Supabase
+  try {
+    const temaMap = {
+      general: "inteligencia artificial",
+      programador: "desarrollo software",
+      psicologo: "psicologia bienestar",
+      abogado: "derecho legal",
+      director: "produccion audiovisual",
+      analista: "apuestas deportivas",
+      ceo: "estrategia negocio",
+      rastreador: "web scraping",
+      corrector: "depuracion errores",
+      verificador: "control calidad",
+      supervisor: "supervision"
+    };
+    const tema = temaMap[agenteId] || temaMap.general;
+    const url = SUPABASE_URL + "/rest/v1/knowledge_base?select=contenido,fuente&tema=ilike.%25" + encodeURIComponent(tema) + "%25&order=fecha.desc&limit=5";
+    const resp = await fetch(url, {
+      headers: {
+        "apikey": SUPABASE_KEY,
+        "Authorization": "Bearer " + SUPABASE_KEY
+      }
+    });
+    if (resp.ok) {
+      const conocimientos = await resp.json();
+      const resultado = conocimientos.length > 0
+        ? "\n\n📚 CONOCIMIENTO FRESCO DE LA AGENCIA:\n" + conocimientos.map(k => "• " + k.contenido.substring(0, 200)).join("\n")
+        : "";
+      // Guardar en caché
+      cacheAgentes[agenteId] = { data: resultado, timestamp: ahora };
+      return resultado;
+    }
+  } catch(e) {
+    console.warn("Error obteniendo conocimiento para " + agenteId + ":", e.message);
+  }
+  return "";
+}
+
 app.listen(PORT, () => console.log("✅ FUNDORA AGENCY v3.0 en puerto " + PORT + " | Agentes: " + Object.keys(AGENTES).length));

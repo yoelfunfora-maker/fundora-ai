@@ -72,22 +72,12 @@ const MODELOS = {
 };
 
 const AGENTES = {
-  rastreador: {
-    nombre: "Rastreador Inteligente",
-    modelo: "@cf/meta/llama-3.1-8b-instruct",
-    system: "Eres el Rastreador. Buscas información en fuentes confiables para nutrir a todos los agentes."
-  },
-  corrector: {
+corrector: {
     nombre: "Corrector de Errores",
     modelo: "@cf/meta/llama-3.1-8b-instruct",
     system: "Eres el Corrector. Analizas errores y propones soluciones."
   },
-  verificador: {
-    nombre: "Verificador de Calidad",
-    modelo: "@cf/meta/llama-3.1-8b-instruct",
-    system: "Eres el Verificador. Revisas resultados."
-  },
-  supervisor: {
+supervisor: {
     nombre: "Supervisor de Pensamiento",
     modelo: "@cf/meta/llama-3.1-8b-instruct",
     system: "Eres el Supervisor. Antes de ejecutar cualquier tarea crítica, analizas el plan, anticipas posibles errores y sugieres precauciones."

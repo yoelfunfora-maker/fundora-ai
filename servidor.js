@@ -350,6 +350,131 @@ app.post("/rastreador/forzar", async (req, res) => {
 setInterval(ejecutarRastreador, 6 * 60 * 60 * 1000);
 console.log("🔍 Rastreador programado cada 6 horas.");
 
+
+// ════ EVOLUCIÓN AUTOMÁTICA DEL RASTREADOR ════
+let temasDinamicos = [
+  "inteligencia artificial 2026",
+  "nuevas APIs gratuitas",
+  "trading algorítmico",
+  "apuestas deportivas machine learning",
+  "desarrollo web tendencias"
+];
+
+async function evaluarEvolucion() {
+  console.log("🧬 Evaluando evolución del rastreador...");
+  try {
+    // 1. Obtener los temas más consultados por los agentes (últimas 24h)
+    const statsUrl = SUPABASE_URL + "/rest/v1/knowledge_base?select=tema&order=fecha.desc&limit=50";
+    const resp = await fetch(statsUrl, {
+      headers: {
+        "apikey": SUPABASE_KEY,
+        "Authorization": "Bearer " + SUPABASE_KEY
+      }
+    });
+    if (resp.ok) {
+      const registros = await resp.json();
+      const conteo = {};
+      registros.forEach(r => {
+        const tema = r.tema || "general";
+        conteo[tema] = (conteo[tema] || 0) + 1;
+      });
+      // 2. Priorizar los 3 temas más populares
+      const temasOrdenados = Object.entries(conteo).sort((a,b) => b[1] - a[1]);
+      const nuevosTemas = temasOrdenados.slice(0, 3).map(([tema]) => tema);
+      
+      // 3. Añadir temas que no estaban en la lista original
+      nuevosTemas.forEach(tema => {
+        if (!temasDinamicos.includes(tema)) {
+          temasDinamicos.push(tema);
+          console.log("🧠 Nuevo tema añadido al rastreador:", tema);
+        }
+      });
+      
+      // 4. Guardar la evolución en Supabase
+      await fetch(SUPABASE_URL + "/rest/v1/knowledge_base", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          "apikey": SUPABASE_KEY,
+          "Authorization": "Bearer " + SUPABASE_KEY
+        },
+        body: JSON.stringify({
+          fuente: "rastreador-evolucion",
+          titulo: "Evolución automática",
+          contenido: "Temas actualizados: " + temasDinamicos.join(", "),
+          tema: "evolucion",
+          credibilidad: "interna",
+          fecha: new Date().toISOString()
+        })
+      });
+    }
+  } catch(e) {
+    console.warn("Error en evolución:", e.message);
+  }
+  console.log("🧬 Evolución completada. Temas actuales:", temasDinamicos.length);
+}
+
+// Reemplazar la función ejecutarRastreador para que use temasDinamicos
+async function ejecutarRastreador() {
+  console.log("🔍 Rastreador iniciando búsqueda en fuentes confiables...");
+  
+  for (const tema of temasDinamicos) {
+    try {
+      const busqueda = `https://api.brave.com/search?q=${encodeURIComponent(tema)}&site=wikipedia.org,github.com,developer.mozilla.org`;
+      const resp = await fetch(busqueda, {
+        headers: { "Accept": "application/json" }
+      });
+      if (!resp.ok) continue;
+      const datos = await resp.json();
+      const resultados = datos.web?.results || [];
+      
+      for (const r of resultados.slice(0, 3)) {
+        if (!esFuenteConfiable(r.url)) continue;
+        try {
+          const pageResp = await fetch(r.url, { timeout: 8000 });
+          if (!pageResp.ok) continue;
+          const html = await pageResp.text();
+          const $ = cheerio.load(html);
+          const texto = $("p, h1, h2, h3, li").text().substring(0, 3000);
+          
+          await fetch(SUPABASE_URL + "/rest/v1/knowledge_base", {
+            method: "POST",
+            headers: {
+              "Content-Type": "application/json",
+              "apikey": SUPABASE_KEY,
+              "Authorization": "Bearer " + SUPABASE_KEY
+            },
+            body: JSON.stringify({
+              fuente: r.url,
+              titulo: r.title || tema,
+              contenido: texto,
+              tema: tema,
+              credibilidad: "alta",
+              fecha: new Date().toISOString()
+            })
+          });
+          console.log("✅ Ingresado:", r.title);
+        } catch(e) {
+          console.warn("Error scraping:", r.url, e.message);
+        }
+      }
+    } catch(e) {
+      console.warn("Error en tema:", tema, e.message);
+    }
+  }
+  console.log("🔍 Rastreador completado.");
+}
+
+// Endpoint para forzar evolución manual
+app.post("/rastreador/evolucionar", async (req, res) => {
+  res.json({ status: "evolucionando", mensaje: "Evolución del rastreador iniciada." });
+  evaluarEvolucion().catch(e => console.error("Error forzando evolución:", e.message));
+});
+
+// Programar evolución cada 12 horas
+setInterval(evaluarEvolucion, 12 * 60 * 60 * 1000);
+console.log("🧬 Evolución del rastreador programada cada 12 horas.");
+
 app.listen(PORT, function() {
   console.log("FUNDORA AGENCY v2.0 Online - Puerto " + PORT);
   console.log("Agentes: " + Object.keys(AGENTES).length + " especializados en 15 sectores");

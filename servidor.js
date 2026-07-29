@@ -184,7 +184,7 @@ app.post("/chat", async function(req, res) {
       if (!validacion.ok) return res.status(403).json({ error: validacion.error });
     }
     const config = AGENTES[agente] || AGENTES.general;
-    const memoria = getMemoria(sessionId, agente);
+    const memoria = await await getMemoria(sessionId, agente);
     memoria.historial.push({ role: "user", content: mensaje });
     memoria.totalMensajes++;
     const respuesta = await consultarHF(memoria.historial, config.modelo);

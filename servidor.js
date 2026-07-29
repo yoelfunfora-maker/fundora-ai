@@ -342,4 +342,24 @@ app.ws("/terminal", (ws, req) => {
 
 app.get("/dashboard", (req, res) => res.sendFile(path.join(__dirname, "public", "dashboard.html")));
 
+
+app.get("/memoria/:agenteId", async (req, res) => {
+  const { agenteId } = req.params;
+  const sessionId = req.query.sessionId || "default";
+  try {
+    const resp = await fetch(SUPABASE_URL + "/rest/v1/agent_memory?select=contenido,tipo,timestamp&agente_id=eq." + agenteId + "&session_id=eq." + sessionId + "&order=timestamp.desc&limit=20", {
+      headers: { "apikey": SUPABASE_KEY, "Authorization": "Bearer " + SUPABASE_KEY }
+    });
+    const memoria = await resp.json();
+    res.json({ agente: agenteId, sessionId, memoria, total: memoria.length });
+  } catch(e) { res.status(500).json({ error: e.message }); }
+});
+
+app.post("/memoria/buscar", async (req, res) => {
+  const { consulta } = req.body;
+  if (!consulta) return res.status(400).json({ error: "Falta consulta" });
+  const resultados = await buscarMemoriaGlobal(consulta);
+  res.json({ consulta, resultados, total: resultados.length });
+});
+
 app.listen(PORT, () => console.log("✅ FUNDORA AGENCY v3.0 en puerto " + PORT + " | Agentes: " + Object.keys(AGENTES).length));

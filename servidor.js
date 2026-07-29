@@ -2,6 +2,7 @@ const express = require("express");
 const fetch = require("node-fetch");
 const cheerio = require("cheerio");
 const app = express();
+const expressWs = require("express-ws")(app);
 app.use(express.json({ limit: "10mb" }));
 
 // CORS — permite peticiones desde PAS y cualquier origen
@@ -474,6 +475,19 @@ app.post("/rastreador/evolucionar", async (req, res) => {
 // Programar evolución cada 12 horas
 setInterval(evaluarEvolucion, 12 * 60 * 60 * 1000);
 console.log("🧬 Evolución del rastreador programada cada 12 horas.");
+
+
+app.get("/dashboard", (req, res) => {
+  res.sendFile(path.join(__dirname, "public", "dashboard.html"));
+});
+
+
+app.ws("/terminal", (ws, req) => {
+  ws.on("message", (msg) => {
+    // Por ahora solo eco. En el siguiente turno conectaremos con /exec.
+    ws.send("Recibido: " + msg);
+  });
+});
 
 app.listen(PORT, function() {
   console.log("FUNDORA AGENCY v2.0 Online - Puerto " + PORT);

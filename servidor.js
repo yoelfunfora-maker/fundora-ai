@@ -450,22 +450,30 @@ app.post("/generar/img2img", upload.single("imagen"), async (req, res) => {
 app.post("/generar/video", async (req, res) => {
   const { prompt } = req.body;
   if (!prompt) return res.status(400).json({ error: "Falta prompt" });
-  try {
-    const resp = await fetch("https://router.huggingface.co/hf-inference/models/damo-vilab/text-to-video-ms-1.7b", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ inputs: prompt })
-    });
-    if (resp.ok) {
-      const buffer = await resp.buffer();
-      const base64 = buffer.toString('base64');
-      res.json({ status: "ok", video: "data:video/mp4;base64," + base64 });
-    } else {
-      res.json({ status: "error", mensaje: "Modelo no disponible." });
-    }
-  } catch(e) {
-    res.status(500).json({ error: e.message });
+  
+  const modelosVideo = [
+    "kabachuha/modelscope-damo-text-to-video",
+    "cerspense/zeroscope_v2_576w",
+    "ali-vilab/text-to-video-ms-1.7b"
+  ];
+  
+  for (const modelo of modelosVideo) {
+    try {
+      const resp = await fetch("https://router.huggingface.co/hf-inference/models/" + modelo, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ inputs: prompt })
+      });
+      if (resp.ok) {
+        const buffer = await resp.buffer();
+        const base64 = buffer.toString('base64');
+        return res.json({ status: "ok", video: "data:video/mp4;base64," + base64, modelo });
+      }
+      console.warn("Modelo video " + modelo + " falló, probando siguiente...");
+    } catch(e) { continue; }
   }
+  
+  res.json({ status: "error", mensaje: "Todos los modelos de video están ocupados. Intente de nuevo en unos minutos." });
 });
 
 app.post("/upload", upload.single("archivo"), async (req, res) => {

@@ -589,6 +589,94 @@ app.post("/memoria/buscar", async function(req, res) {
   res.json({ consulta, resultados, total: resultados.length });
 });
 
+
+// ════ SISTEMA DE APRENDIZAJE CONTINUO + FEEDBACK ════
+async function guardarFeedback(agenteId, sessionId, consulta, respuesta, puntuacion, comentario = "") {
+  try {
+    await fetch(SUPABASE_URL + "/rest/v1/learning_logs", {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        "apikey": SUPABASE_KEY,
+        "Authorization": "Bearer " + SUPABASE_KEY
+      },
+      body: JSON.stringify({
+        agente_id: agenteId,
+        session_id: sessionId,
+        consulta: consulta,
+        respuesta: respuesta,
+        puntuacion: puntuacion,
+        comentario: comentario,
+        timestamp: new Date().toISOString()
+      })
+    });
+  } catch(e) {
+    console.warn("Error guardando feedback:", e.message);
+  }
+}
+
+app.post("/feedback", async function(req, res) {
+  const { agenteId, sessionId, consulta, respuesta, puntuacion, comentario } = req.body;
+  if (!agenteId || !puntuacion) return res.status(400).json({ error: "Faltan campos obligatorios" });
+  await guardarFeedback(agenteId, sessionId || "default", consulta || "", respuesta || "", puntuacion, comentario || "");
+  res.json({ status: "ok", mensaje: "Feedback registrado. Gracias por ayudar a mejorar la agencia." });
+});
+
+async function analizarAprendizaje() {
+  console.log("📊 Analizando aprendizaje de la agencia...");
+  try {
+    // Obtener feedback negativo (puntuacion <= 2) de las últimas 48h
+    const url = SUPABASE_URL + "/rest/v1/learning_logs?select=agente_id,consulta,respuesta,puntuacion,comentario&puntuacion=lte.2&order=timestamp.desc&limit=20";
+    const resp = await fetch(url, {
+      headers: {
+        "apikey": SUPABASE_KEY,
+        "Authorization": "Bearer " + SUPABASE_KEY
+      }
+    });
+    if (resp.ok) {
+      const fallos = await resp.json();
+      if (fallos.length > 0) {
+        // Agrupar por agente
+        const porAgente = {};
+        fallos.forEach(f => {
+          if (!porAgente[f.agente_id]) porAgente[f.agente_id] = [];
+          porAgente[f.agente_id].push(f);
+        });
+        
+        // Para cada agente con fallos, registrar sugerencia de mejora
+        for (const [agenteId, fallosAgente] of Object.entries(porAgente)) {
+          const resumen = fallosAgente.map(f => `- Consulta: "${f.consulta}" → Puntuación: ${f.puntuacion}/5`).join("\n");
+          await fetch(SUPABASE_URL + "/rest/v1/knowledge_base", {
+            method: "POST",
+            headers: {
+              "Content-Type": "application/json",
+              "apikey": SUPABASE_KEY,
+              "Authorization": "Bearer " + SUPABASE_KEY
+            },
+            body: JSON.stringify({
+              fuente: "analisis-aprendizaje",
+              titulo: "Sugerencia de mejora para agente " + agenteId,
+              contenido: "Se detectaron las siguientes interacciones con baja puntuación:\n" + resumen + "\nSe recomienda revisar el prompt del agente y ajustar su conocimiento base.",
+              tema: "aprendizaje",
+              credibilidad: "interna",
+              fecha: new Date().toISOString()
+            })
+          });
+        }
+        console.log("📊 Análisis completado. Se encontraron " + fallos.length + " interacciones con baja puntuación.");
+      } else {
+        console.log("📊 No se encontraron fallos recientes. ¡Buen trabajo!");
+      }
+    }
+  } catch(e) {
+    console.warn("Error en análisis de aprendizaje:", e.message);
+  }
+}
+
+// Programar análisis de aprendizaje cada 24 horas
+setInterval(analizarAprendizaje, 24 * 60 * 60 * 1000);
+console.log("📊 Análisis de aprendizaje programado cada 24 horas.");
+
 app.listen(PORT, function() {
   console.log("FUNDORA AGENCY v2.0 Online - Puerto " + PORT);
   console.log("Agentes: " + Object.keys(AGENTES).length + " especializados en 15 sectores");

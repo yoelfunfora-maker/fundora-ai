@@ -31,6 +31,15 @@ const SUPABASE_URL = "https://vmjmiabxjmcrovnirbkj.supabase.co";
 const SUPABASE_KEY = process.env.SUPABASE_ANON_KEY || "";
 const CF_ACCOUNT_ID = process.env.CF_ACCOUNT_ID || "";
 const CF_TOKEN = process.env.CF_TOKEN || "";
+
+// ════ GROQ CLOUD (ultrarrápido, gratuito) ════
+const GROQ_KEY = "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";
+const GROQ_MODELS = {
+  rapido: "llama-3.1-8b-instant",
+  potente: "llama-3.3-70b-versatile",
+  analisis: "deepseek-r1-distill-llama-70b"
+};
+
 const SAFE_ROOT = path.join(os.homedir(), "fundora-ai");
 
 // ==================== AGENTES ====================
@@ -856,6 +865,33 @@ function verificarToken(req, res, next) {
 // ════ GENERACIÓN DE VIDEO LOCAL (EN DESARROLLO) ════
 app.post("/generar/video-local", (req, res) => {
   res.json({ status: "en_desarrollo", mensaje: "El motor de video local requiere Ollama o GPU externa. Se habilitará en una futura actualización. Mientras tanto, use /generar/video para el pool de Hugging Face." });
+});
+
+
+// ════ GROQ CHAT (ultrarrápido) ════
+app.post("/groq/chat", async (req, res) => {
+  const { mensaje, modelo = "rapido" } = req.body;
+  if (!mensaje) return res.status(400).json({ error: "Falta mensaje" });
+  const model = GROQ_MODELS[modelo] || GROQ_MODELS.rapido;
+  try {
+    const resp = await fetch("https://api.groq.com/openai/v1/chat/completions", {
+      method: "POST",
+      headers: {
+        "Authorization": "Bearer " + GROQ_KEY,
+        "Content-Type": "application/json"
+      },
+      body: JSON.stringify({
+        model,
+        messages: [{ role: "user", content: mensaje }],
+        max_tokens: 1000
+      })
+    });
+    const data = await resp.json();
+    const respuesta = data?.choices?.[0]?.message?.content || JSON.stringify(data);
+    res.json({ respuesta, modelo: model, motor: "groq" });
+  } catch(e) {
+    res.status(500).json({ error: e.message });
+  }
 });
 
 app.listen(PORT, () => console.log("✅ FUNDORA AGENCY v3.0 en puerto " + PORT + " | Agentes: " + Object.keys(AGENTES).length));

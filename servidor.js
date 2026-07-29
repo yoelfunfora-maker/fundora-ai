@@ -72,6 +72,26 @@ const MODELOS = {
 };
 
 const AGENTES = {
+  rastreador: {
+    nombre: "Rastreador Inteligente",
+    modelo: "@cf/meta/llama-3.1-8b-instruct",
+    system: "Eres el Rastreador. Buscas información en fuentes confiables para nutrir a todos los agentes."
+  },
+  corrector: {
+    nombre: "Corrector de Errores",
+    modelo: "@cf/meta/llama-3.1-8b-instruct",
+    system: "Eres el Corrector. Analizas errores y propones soluciones."
+  },
+  verificador: {
+    nombre: "Verificador de Calidad",
+    modelo: "@cf/meta/llama-3.1-8b-instruct",
+    system: "Eres el Verificador. Revisas resultados."
+  },
+  supervisor: {
+    nombre: "Supervisor de Pensamiento",
+    modelo: "@cf/meta/llama-3.1-8b-instruct",
+    system: "Eres el Supervisor. Antes de ejecutar cualquier tarea crítica, analizas el plan, anticipas posibles errores y sugieres precauciones."
+  },
   general: {
     nombre: "FUNDORA AI",
     modelo: "@cf/meta/llama-3.3-70b-instruct-fp8-fast",
@@ -80,7 +100,7 @@ const AGENTES = {
   programador: {
     nombre: "FUNDORA DEV",
     modelo: "@cf/meta/llama-3.3-70b-instruct-fp8-fast",
-    system: "Eres FUNDORA DEV, especialista en desarrollo de software."
+    system: "Eres FUNDORA DEV, especialista en desarrollo de software. Escribes código limpio, eficiente y bien documentado."
   },
   psicologo: {
     nombre: "FUNDORA MIND",
@@ -100,40 +120,89 @@ const AGENTES = {
   analista: {
     nombre: "FUNDORA SPORTS",
     modelo: "@cf/meta/llama-3.3-70b-instruct-fp8-fast",
-    system: "Eres FUNDORA SPORTS, analista deportivo."
+    system: "Eres FUNDORA SPORTS, analista deportivo. Especialista en apuestas, cuotas y predicciones."
   },
   ceo: {
     nombre: "CEO Fundora Prime",
     modelo: "@cf/meta/llama-3.3-70b-instruct-fp8-fast",
-    system: `Eres el CEO de Fundora Agency AI, un clon digital de Yoel Fundora. CONOCIMIENTO PERSONAL DEL CEO: Protocolo de trabajo, BetGroup, Fundora AI, reglas de negocio.`
+    system: `Eres el CEO de Fundora Agency AI, un clon digital de Yoel Fundora. 
+Tienes su estilo: directo, visionario, práctico y enfocado en resultados. 
+Conoces a fondo BetGroup, PAS y todos los proyectos de Fundora Prime Atlantic LLC. 
+Puedes tomar decisiones estratégicas, delegar en los demás agentes y aprobar o rechazar propuestas. 
+Hablas en español cubano con confianza y carisma. 
+Tu misión es hacer crecer el imperio Fundora sin depender de terceros. 
+Recuerda: cada decisión debe ser registrada en Supabase para mejorar tu criterio con el tiempo.
+CONOCIMIENTO PERSONAL DEL CEO (basado en documentos reales):
+--- PROTOCOLO DE TRABAJO ---
+Reglas: backup antes de cada cambio, un solo cambio por turno, verificar sintaxis antes de commit, probar endpoints después de cada deploy. Evitar modificaciones sin autorización explícita del Sr. Fundora.
+--- PROYECTO BETGROUP ---
+Plataforma de apuestas deportivas cubana con backend en Render, frontend en Firebase Hosting, base de datos Firebase RTDB. Agentes IA: Hugging Face. The Odds API para cuotas, ESPN para eventos. Márgenes del 20% aplicados.
+--- FUNDORA AI ---
+Orquestador multiagente con agentes especializados. Backend en Node.js/Express, IA en Cloudflare Workers AI, base de conocimiento en Supabase. Dashboard visual con terminal y chat integrados.
+--- REGLAS DE NEGOCIO ---
+Independencia tecnológica: no depender de APIs de pago externas. Monetización propia: sistema de suscripciones y agentes rentables. Ecosistema Fundora Prime Atlantic LLC: BetGroup, Nexo, Trend Command Center, Fundora Store.`
   },
   rastreador: {
     nombre: "Rastreador Inteligente",
     modelo: "@cf/meta/llama-3.1-8b-instruct",
-    system: "Eres el Rastreador de Fundora Agency AI. Buscas información en fuentes confiables para nutrir a todos los agentes."
+    system: "Eres el Rastreador de Fundora Agency AI. Buscas información en fuentes confiables para nutrir a todos los agentes. Trabajas en segundo plano, sin interactuar con usuarios finales."
   },
   corrector: {
     nombre: "Corrector de Errores",
     modelo: "@cf/meta/llama-3.1-8b-instruct",
-    system: "Eres el Corrector de Fundora Agency AI. Analizas errores y propones soluciones."
+    system: "Eres el Corrector de Fundora Agency AI. Analizas errores y propones soluciones concretas en formato JSON: {\"diagnostico\":\"...\", \"solucion\":\"...\"}."
   },
   verificador: {
     nombre: "Verificador de Calidad",
     modelo: "@cf/meta/llama-3.1-8b-instruct",
-    system: "Eres el Verificador de Fundora Agency AI. Revisas resultados."
+    system: "Eres el Verificador de Fundora Agency AI. Revisas resultados y respondes en formato JSON: {\"resultado\":\"VERIFICADO\"|\"FALLIDO\", \"razon\":\"...\"}."
   }
 };
 
 const memorias = {};
 const conocimientoBase = {};
 
-function getMemoria(sessionId, agenteId) {
+async function getMemoria(sessionId, agenteId) {
   const agente = AGENTES[agenteId] || AGENTES.general;
   if (!memorias[sessionId]) {
-    const extra = conocimientoBase[agenteId] ? " CONOCIMIENTO ADICIONAL: " + conocimientoBase[agenteId] : "";
+    let extraContexto = conocimientoBase[agenteId] ? " CONOCIMIENTO ADICIONAL: " + conocimientoBase[agenteId] : "";
+    
+    // 📚 CONOCIMIENTO FRESCO DE LA AGENCIA
+    try {
+      const temaMap = {
+        general: "inteligencia artificial",
+        programador: "desarrollo software",
+        psicologo: "psicologia bienestar",
+        abogado: "derecho legal",
+        director: "produccion audiovisual",
+        analista: "apuestas deportivas",
+        ceo: "estrategia negocio",
+        rastreador: "web scraping",
+        corrector: "depuracion errores",
+        verificador: "control calidad",
+        supervisor: "supervision"
+      };
+      const tema = temaMap[agenteId] || temaMap.general;
+      const url = SUPABASE_URL + "/rest/v1/knowledge_base?select=contenido,fuente&tema=ilike.%25" + encodeURIComponent(tema) + "%25&order=fecha.desc&limit=5";
+      const resp = await fetch(url, {
+        headers: { "apikey": SUPABASE_KEY, "Authorization": "Bearer " + SUPABASE_KEY }
+      });
+      if (resp.ok) {
+        const conocimientos = await resp.json();
+        if (conocimientos.length > 0) {
+          extraContexto += "\n\n📚 CONOCIMIENTO FRESCO DE LA AGENCIA:\n";
+          conocimientos.forEach(k => {
+            extraContexto += "• " + k.contenido.substring(0, 200) + "\n";
+          });
+        }
+      }
+    } catch(e) {
+      console.warn("Error obteniendo conocimiento:", e.message);
+    }
+    
     memorias[sessionId] = {
       agenteId,
-      historial: [{ role: "system", content: agente.system + extra }],
+      historial: [{ role: "system", content: agente.system + extraContexto }],
       creado: Date.now(),
       totalMensajes: 0
     };
@@ -803,6 +872,31 @@ app.post("/verificar", async (req, res) => {
   const resultado = await verificarResultado(texto, tipo || "general");
   res.json(resultado);
 });
+
+
+async function validarPensamiento(tarea, contexto = "") {
+  try {
+    const agente = AGENTES.supervisor;
+    const prompt = `Tarea propuesta: "${tarea}"\nContexto: ${contexto}\nAnaliza la tarea, anticipa errores y sugiere precauciones. Responde en JSON.`;
+    const url = "https://api.cloudflare.com/client/v4/accounts/" + CF_ACCOUNT_ID + "/ai/run/" + agente.modelo;
+    const resp = await fetch(url, {
+      method: "POST",
+      headers: { "Authorization": "Bearer " + CF_TOKEN, "Content-Type": "application/json" },
+      body: JSON.stringify({
+        messages: [
+          { role: "system", content: agente.system },
+          { role: "user", content: prompt }
+        ],
+        max_tokens: 300
+      })
+    });
+    const data = await resp.json();
+    if (data.success) return JSON.parse(data.result.response);
+  } catch(e) {
+    console.warn("Error en validación:", e.message);
+  }
+  return { valido: true, riesgos: [], sugerencias: ["No se pudo validar automáticamente."] };
+}
 
 app.listen(PORT, function() {
   console.log("FUNDORA AGENCY v2.0 Online - Puerto " + PORT);

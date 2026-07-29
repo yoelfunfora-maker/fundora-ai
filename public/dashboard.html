@@ -29,7 +29,14 @@
         <div id="terminal-container"></div>
     </div>
     <div id="panel-der">
-        <div class="header">🤖 Chat con Agentes</div>
+        <div class="header" style="display:flex;justify-content:space-between;align-items:center;">
+  <span>🤖 Chat con Agentes</span>
+  <div style="display:flex;gap:6px;">
+    <button onclick="clearChat()" style="background:#374151;color:#fff;border:none;border-radius:6px;padding:4px 8px;font-size:11px;cursor:pointer;">🗑️ Limpiar</button>
+    <button onclick="downloadChat()" style="background:#374151;color:#fff;border:none;border-radius:6px;padding:4px 8px;font-size:11px;cursor:pointer;">📥 Descargar</button>
+    <button onclick="loadHistory()" style="background:#374151;color:#fff;border:none;border-radius:6px;padding:4px 8px;font-size:11px;cursor:pointer;">📜 Historial</button>
+  </div>
+</div>
         <div id="chat-container">
             <div id="chat-messages">
                 <div class="msg agent"><strong>Fundora AI:</strong> Dashboard conectado. Selecciona un agente y escribe tu mensaje.</div>
@@ -130,7 +137,43 @@
             }
         }
 
-        sendBtn.addEventListener('click', sendMessage);
+        function clearChat() {
+  document.getElementById('chat-messages').innerHTML = '<div class="msg agent"><strong>Fundora AI:</strong> Chat limpiado.</div>';
+}
+
+function downloadChat() {
+  const chat = document.getElementById('chat-messages').innerText;
+  const blob = new Blob([chat], {type: 'text/plain'});
+  const a = document.createElement('a');
+  a.href = URL.createObjectURL(blob);
+  a.download = 'fundora-chat-' + new Date().toISOString().slice(0,10) + '.txt';
+  a.click();
+}
+
+async function loadHistory() {
+  const agente = document.getElementById('agente-select').value;
+  try {
+    const resp = await fetch('/memoria/' + agente + '?sessionId=dashboard-' + agente);
+    const data = await resp.json();
+    const mensajesDiv = document.getElementById('chat-messages');
+    mensajesDiv.innerHTML = '<div class="msg agent"><strong>Fundora AI:</strong> Historial cargado.</div>';
+    if (data.memoria) {
+      data.memoria.forEach(item => {
+        const div = document.createElement('div');
+        div.className = 'msg ' + (item.tipo === 'chat' && item.contenido.startsWith('USUARIO:') ? 'user' : 'agent');
+        const role = item.contenido.startsWith('USUARIO:') ? 'Tú' : agente;
+        const text = item.contenido.replace(/^(USUARIO|AGENTE):\s*/, '');
+        div.innerHTML = '<strong>' + role + ':</strong> ' + text;
+        mensajesDiv.appendChild(div);
+      });
+    }
+    mensajesDiv.scrollTop = mensajesDiv.scrollHeight;
+  } catch(e) {
+    alert('Error al cargar historial');
+  }
+}
+
+sendBtn.addEventListener('click', sendMessage);
         input.addEventListener('keypress', e => { if (e.key === 'Enter') sendMessage(); });
     </script>
 </body>

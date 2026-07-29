@@ -418,7 +418,7 @@ app.post("/generar/imagen", async (req, res) => {
 
 app.post("/generar/img2img", upload.single("imagen"), async (req, res) => {
   const { prompt } = req.body;
-  if (!req.file || !prompt) return res.status(400).json({ error: "Falta imagen y/o prompt" });
+  if (!req.file || !prompt) return res.status(400).json({ error: "Falta imagen y/o prompt. Asegúrate de enviar el archivo con el campo 'imagen'." });
   try {
     const imageBase64 = req.file.buffer.toString('base64');
     const url = "https://api.cloudflare.com/client/v4/accounts/" + CF_ACCOUNT_ID + "/ai/run/@cf/stabilityai/stable-diffusion-xl-base-1.0-img2img";
@@ -427,12 +427,20 @@ app.post("/generar/img2img", upload.single("imagen"), async (req, res) => {
       headers: { "Authorization": "Bearer " + CF_TOKEN, "Content-Type": "application/json" },
       body: JSON.stringify({ prompt, image: imageBase64, num_steps: 25, strength: 0.7 })
     });
-    const data = await resp.json();
-    if (data.success) {
-      const base64Result = Buffer.from(data.result.image, 'base64').toString('base64');
-      res.json({ status: "ok", imagen: "data:image/png;base64," + base64Result });
+    const contentType = resp.headers.get("content-type") || "";
+    if (contentType.includes("application/json")) {
+      const data = await resp.json();
+      if (data.success) {
+        const base64Result = Buffer.from(data.result.image, 'base64').toString('base64');
+        res.json({ status: "ok", imagen: "data:image/png;base64," + base64Result });
+      } else {
+        res.json({ status: "error", mensaje: "Error: " + JSON.stringify(data.errors) });
+      }
     } else {
-      res.json({ status: "error", mensaje: "Error: " + JSON.stringify(data.errors) });
+      // Respuesta binaria
+      const buffer = await resp.arrayBuffer();
+      const base64Result = Buffer.from(buffer).toString('base64');
+      res.json({ status: "ok", imagen: "data:image/png;base64," + base64Result });
     }
   } catch(e) {
     res.status(500).json({ error: e.message });
@@ -443,7 +451,7 @@ app.post("/generar/video", async (req, res) => {
   const { prompt } = req.body;
   if (!prompt) return res.status(400).json({ error: "Falta prompt" });
   try {
-    const resp = await fetch("https://api-inference.huggingface.co/models/damo-vilab/text-to-video-ms-1.7b", {
+    const resp = await fetch("https://router.huggingface.co/hf-inference/models/damo-vilab/text-to-video-ms-1.7b", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ inputs: prompt })

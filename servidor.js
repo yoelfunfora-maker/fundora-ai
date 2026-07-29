@@ -887,6 +887,94 @@ app.post("/ejecutar", async (req, res) => {
   res.json({ status: "ok", mensaje: "Tarea validada y en ejecución.", validacion });
 });
 
+
+// ════ SIMULACIÓN DE PROCESOS EN SANDBOX ════
+const fs = require("fs");
+const os = require("os");
+const path = require("path");
+
+function crearSandbox() {
+  const id = Math.random().toString(36).substring(2, 10);
+  const dir = path.join(os.tmpdir(), `fundora-sim-${id}`);
+  fs.mkdirSync(dir, { recursive: true });
+  return dir;
+}
+
+function limpiarSandbox(dir) {
+  try {
+    fs.rmSync(dir, { recursive: true, force: true });
+  } catch(e) {}
+}
+
+app.post("/simular", async (req, res) => {
+  const { comandos, contexto } = req.body;
+  if (!comandos || !Array.isArray(comandos) || comandos.length === 0) {
+    return res.status(400).json({ error: "Se requiere array de comandos" });
+  }
+  
+  // Validar con Supervisor antes de simular
+  const validacion = await validarPensamiento(comandos.join(" | "), contexto || "Simulación");
+  if (!validacion.valido) {
+    return res.json({ status: "rechazado", riesgos: validacion.riesgos, sugerencias: validacion.sugerencias });
+  }
+  
+  const resultados = [];
+  for (const cmd of comandos) {
+    const sandbox = crearSandbox();
+    try {
+      const resultado = await new Promise((resolve) => {
+        exec(cmd, { cwd: sandbox, timeout: 10000, maxBuffer: 1024 * 200 }, (error, stdout, stderr) => {
+          resolve({
+            comando: cmd,
+            stdout: stdout || "",
+            stderr: stderr || "",
+            error: error ? error.message : null,
+            exitCode: error ? error.code : 0
+          });
+        });
+      });
+      resultados.push(resultado);
+    } catch(e) {
+      resultados.push({ comando: cmd, error: e.message });
+    } finally {
+      limpiarSandbox(sandbox);
+    }
+  }
+  
+  res.json({ status: "ok", total: resultados.length, resultados, validacion });
+});
+
+// Modificar /exec para soportar modo simulación
+app.post("/exec", async (req, res) => {
+  const { comando, simular } = req.body;
+  if (!comando) return res.status(400).json({ error: "Falta comando" });
+  
+  if (simular) {
+    const sandbox = crearSandbox();
+    exec(comando, { cwd: sandbox, timeout: 10000, maxBuffer: 1024 * 200 }, (error, stdout, stderr) => {
+      limpiarSandbox(sandbox);
+      if (error) {
+        res.json({ status: "simulado", exitCode: error.code || 1, stdout, stderr: stderr || error.message });
+      } else {
+        res.json({ status: "simulado", exitCode: 0, stdout, stderr });
+      }
+    });
+  } else {
+    // Comportamiento normal (ejecución real)
+    const dangerous = /rm\s+-rf\s+\/|sudo|chmod\s+777|wget|curl.*\|.*sh/i;
+    if (dangerous.test(comando)) {
+      return res.status(403).json({ error: "Comando bloqueado por seguridad" });
+    }
+    exec(comando, { cwd: SAFE_ROOT, timeout: 15000, maxBuffer: 1024 * 500 }, (error, stdout, stderr) => {
+      if (error) {
+        res.json({ exitCode: error.code || 1, stdout, stderr: stderr || error.message });
+      } else {
+        res.json({ exitCode: 0, stdout, stderr });
+      }
+    });
+  }
+});
+
 app.listen(PORT, function() {
   console.log("FUNDORA AGENCY v2.0 Online - Puerto " + PORT);
   console.log("Agentes: " + Object.keys(AGENTES).length + " especializados en 15 sectores");

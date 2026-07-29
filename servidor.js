@@ -894,4 +894,60 @@ app.post("/groq/chat", async (req, res) => {
   }
 });
 
+
+// ════ CHAT CON GENERACIÓN DE IMÁGENES ════
+app.post("/chat/imagen", async (req, res) => {
+  const { prompt } = req.body;
+  if (!prompt) return res.status(400).json({ error: "Falta prompt" });
+
+  try {
+    // 1. Optimizar el prompt con el agente director (FUNDORA VISION)
+    let promptOptimizado = prompt;
+    try {
+      const agente = AGENTES.director;
+      const urlOpt = "https://api.cloudflare.com/client/v4/accounts/" + CF_ACCOUNT_ID + "/ai/run/" + agente.modelo;
+      const respOpt = await fetch(urlOpt, {
+        method: "POST",
+        headers: { "Authorization": "Bearer " + CF_TOKEN, "Content-Type": "application/json" },
+        body: JSON.stringify({
+          messages: [
+            { role: "system", content: agente.system + " Eres experto en prompts visuales. Responde SOLO con el prompt optimizado, sin explicaciones." },
+            { role: "user", content: "Optimiza este prompt para generar una imagen de alta calidad: " + prompt }
+          ],
+          max_tokens: 150
+        })
+      });
+      const dataOpt = await respOpt.json();
+      if (dataOpt.success) {
+        promptOptimizado = dataOpt.result.response.trim();
+      }
+    } catch(e) { console.warn("Error optimizando prompt:", e.message); }
+
+    // 2. Generar imagen con Cloudflare
+    const urlImg = "https://api.cloudflare.com/client/v4/accounts/" + CF_ACCOUNT_ID + "/ai/run/@cf/stabilityai/stable-diffusion-xl-base-1.0";
+    const respImg = await fetch(urlImg, {
+      method: "POST",
+      headers: { "Authorization": "Bearer " + CF_TOKEN, "Content-Type": "application/json" },
+      body: JSON.stringify({ prompt: promptOptimizado, num_steps: 20 })
+    });
+
+    const contentType = respImg.headers.get("content-type") || "";
+    if (contentType.includes("application/json")) {
+      const dataImg = await respImg.json();
+      if (dataImg.success) {
+        const base64 = Buffer.from(dataImg.result.image, 'base64').toString('base64');
+        return res.json({ status: "ok", imagen: "data:image/png;base64," + base64, prompt_original: prompt, prompt_optimizado: promptOptimizado });
+      } else {
+        return res.json({ status: "error", mensaje: "Error: " + JSON.stringify(dataImg.errors) });
+      }
+    } else {
+      const buffer = await respImg.arrayBuffer();
+      const base64 = Buffer.from(buffer).toString('base64');
+      return res.json({ status: "ok", imagen: "data:image/png;base64," + base64, prompt_original: prompt, prompt_optimizado: promptOptimizado });
+    }
+  } catch(e) {
+    res.status(500).json({ error: e.message });
+  }
+});
+
 app.listen(PORT, () => console.log("✅ FUNDORA AGENCY v3.0 en puerto " + PORT + " | Agentes: " + Object.keys(AGENTES).length));

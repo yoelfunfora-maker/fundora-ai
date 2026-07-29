@@ -41,7 +41,8 @@
             <div id="chat-messages">
                 <div class="msg agent"><strong>Fundora AI:</strong> Dashboard conectado. Selecciona un agente y escribe tu mensaje.</div>
             </div>
-            <div id="chat-input-area">
+            <div id="chat-input-area" style="flex-wrap:wrap;">
+                <button onclick="generarImagen()" style="background:#d4af37;color:#000;border:none;border-radius:8px;padding:6px 12px;font-weight:bold;cursor:pointer;margin-right:8px;">🖼️ Generar Imagen</button>
                 <select id="agente-select">
                     <option value="general">General</option>
                     <option value="ceo">CEO</option>
@@ -138,7 +139,16 @@
             if (text.startsWith('data:image/') || text.includes('data:image/png;base64,')) {
                 contenido += '<br><img src="' + text.substring(0, 500) + '" style="max-width:300px;border-radius:8px;margin-top:8px;" onerror="this.style.display=\'none\'"/>';
             }
-            div.innerHTML = '<strong>' + displayName + ':</strong> ' + contenido;
+            // Si el contenido es una imagen (tag img), mostrarla directamente
+            if (text.startsWith('<img ')) {
+                div.innerHTML = '<strong>' + displayName + ':</strong> ' + text;
+            } else {
+                let contenido = text.replace(/\n/g, '<br>');
+                if (text.startsWith('data:image/') || text.includes('data:image/png;base64,')) {
+                    contenido += '<br><img src="' + text.substring(0, 500) + '" style="max-width:300px;border-radius:8px;margin-top:8px;" onerror="this.style.display=\'none\'"/>';
+                }
+                div.innerHTML = '<strong>' + displayName + ':</strong> ' + contenido;
+            }
             messagesDiv.appendChild(div);
             messagesDiv.scrollTop = messagesDiv.scrollHeight;
         }
@@ -211,7 +221,39 @@ async function loadHistory() {
   }
 }
 
-sendBtn.addEventListener('click', sendMessage);
+async function generarImagen() {
+            const msg = input.value.trim();
+            if (!msg) {
+                alert('Escribe un prompt para la imagen.');
+                return;
+            }
+            const prompt = msg;
+            addMessage('🖼️ Generando imagen para: ' + prompt, 'user');
+            input.value = '';
+            sendBtn.disabled = true;
+            showTyping();
+            try {
+                const resp = await fetch('/chat/imagen', {
+                    method: 'POST',
+                    headers: {'Content-Type': 'application/json'},
+                    body: JSON.stringify({ prompt })
+                });
+                const data = await resp.json();
+                hideTyping();
+                if (data.status === 'ok' && data.imagen) {
+                    addMessage('<img src="' + data.imagen + '" style="max-width:100%;border-radius:8px;"/>', 'agent');
+                } else {
+                    addMessage('❌ Error al generar imagen: ' + (data.mensaje || data.error || 'Desconocido'), 'agent');
+                }
+            } catch(e) {
+                hideTyping();
+                addMessage('Error de conexión al generar imagen.', 'agent');
+            } finally {
+                sendBtn.disabled = false;
+            }
+        }
+
+        sendBtn.addEventListener('click', sendMessage);
         input.addEventListener('keypress', e => { if (e.key === 'Enter') sendMessage(); });
     </script>
 </body>

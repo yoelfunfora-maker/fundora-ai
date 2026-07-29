@@ -6,6 +6,20 @@ const path = require("path");
 const fs = require("fs");
 const os = require("os");
 
+
+const jwt = require("jsonwebtoken");
+const winston = require("winston");
+
+
+// ════ LOGS ESTRUCTURADOS (WINSTON) ════
+const logger = winston.createLogger({
+  level: 'info',
+  format: winston.format.json(),
+  transports: [
+    new winston.transports.Console({ format: winston.format.simple() })
+  ]
+});
+
 const app = express();
 const multer = require("multer");
 const upload = multer({ storage: multer.memoryStorage() });
@@ -200,6 +214,12 @@ function limpiarSandbox(dir) {
 
 // ==================== MIDDLEWARE ====================
 app.use(express.json());
+
+app.use((req, res, next) => {
+  logger.info(`${req.method} ${req.path}`);
+  next();
+});
+
 app.use(express.static("public"));
 
 // ==================== ENDPOINTS ====================
@@ -736,5 +756,106 @@ async function getConocimientoCached(agenteId) {
   }
   return "";
 }
+
+
+// ════ LISTAR TODAS LAS CAPACIDADES ════
+app.get("/skills", (req, res) => {
+  res.json({
+    sistema: "Fundora Agency AI v3.0",
+    agentes: Object.keys(AGENTES).length,
+    endpoints: [
+      "GET /health",
+      "GET /agentes",
+      "POST /chat",
+      "POST /consulta",
+      "POST /verificar",
+      "POST /validar",
+      "POST /feedback",
+      "GET /memoria/:agenteId",
+      "POST /memoria/buscar",
+      "POST /ejecutar",
+      "POST /simular",
+      "POST /generar/imagen",
+      "POST /generar/imagen-ilimitado",
+      "POST /generar/img2img",
+      "POST /generar/video",
+      "POST /upload",
+      "POST /sql",
+      "POST /enviar/whatsapp",
+      "GET /dashboard"
+    ],
+    seguridad: "JWT disponible para dashboard (opcional)",
+    logs: "Winston activo",
+    autonomia: "exec_sql en Supabase operativo"
+  });
+});
+
+
+// ════ ENVIAR MENSAJE POR WHATSAPP (BOTPRESS) ════
+const BOTPRESS_PAT = "bp_pat_P0qf7HAVhl15wfGz2UMoM4ZiQfHzbzmD5yNx";
+const BOTPRESS_BOT_ID = "32429f0f-8a50-4787-ad93-7a6d8bc06cce";
+
+app.post("/enviar/whatsapp", async (req, res) => {
+  const { telefono, mensaje } = req.body;
+  if (!telefono || !mensaje) return res.status(400).json({ error: "Falta telefono o mensaje" });
+  try {
+    const resp = await fetch("https://api.botpress.cloud/v1/chat/messages", {
+      method: "POST",
+      headers: {
+        "Authorization": "Bearer " + BOTPRESS_PAT,
+        "Content-Type": "application/json",
+        "x-bot-id": BOTPRESS_BOT_ID
+      },
+      body: JSON.stringify({
+        userId: "whatsapp:" + telefono,
+        type: "text",
+        tags: {},
+        conversationId: "whatsapp-" + telefono + "-" + Date.now(),
+        payload: { type: "text", text: mensaje }
+      })
+    });
+    if (resp.ok) {
+      res.json({ status: "ok", mensaje: "Mensaje enviado a WhatsApp" });
+    } else {
+      const err = await resp.text();
+      res.status(500).json({ error: "Error al enviar: " + err });
+    }
+  } catch(e) {
+    res.status(500).json({ error: e.message });
+  }
+});
+
+
+// ════ AUTENTICACIÓN JWT PARA DASHBOARD ════
+const JWT_SECRET = process.env.JWT_SECRET || "fundora-ai-secreto-2026";
+
+app.post("/auth/login", (req, res) => {
+  const { usuario, password } = req.body;
+  if (usuario === "admin" && password === "Fundora2026!") {
+    const token = jwt.sign({ rol: "admin" }, JWT_SECRET, { expiresIn: "24h" });
+    res.json({ token });
+  } else {
+    res.status(401).json({ error: "Credenciales inválidas" });
+  }
+});
+
+function verificarToken(req, res, next) {
+  const token = req.headers["authorization"]?.split(" ")[1];
+  if (!token) return res.status(401).json({ error: "Token requerido" });
+  try {
+    const decoded = jwt.verify(token, JWT_SECRET);
+    req.usuario = decoded;
+    next();
+  } catch(e) {
+    res.status(403).json({ error: "Token inválido" });
+  }
+}
+// Para proteger el dashboard, añadir: app.use("/dashboard", verificarToken);
+
+
+// ════ GENERACIÓN DE VIDEO LOCAL (EN DESARROLLO) ════
+app.post("/generar/video-local", (req, res) => {
+  res.json({ status: "en_desarrollo", mensaje: "El motor de video local requiere Ollama o GPU externa. Se habilitará en una futura actualización. Mientras tanto, use /generar/video para el pool de Hugging Face." });
+});
 
 app.listen(PORT, () => console.log("✅ FUNDORA AGENCY v3.0 en puerto " + PORT + " | Agentes: " + Object.keys(AGENTES).length));

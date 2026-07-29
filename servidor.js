@@ -496,46 +496,30 @@ app.post("/upload", upload.single("archivo"), async (req, res) => {
     const fileName = Date.now() + "-" + req.file.originalname;
     const base64Data = req.file.buffer.toString('base64');
     
-    // Intentar bucket primero
-    const resp = await fetch(SUPABASE_URL + "/storage/v1/object/fundora-uploads/" + fileName, {
-      method: "POST",
-      headers: {
-        "Authorization": "Bearer " + SUPABASE_KEY,
-        "apikey": SUPABASE_KEY,
-        "Content-Type": req.file.mimetype
-      },
-      body: req.file.buffer
-    });
-    
-    if (resp.ok) {
-      const url = SUPABASE_URL + "/storage/v1/object/public/fundora-uploads/" + fileName;
-      return res.json({ status: "ok", url, tipo: req.file.mimetype, nombre: fileName });
-    }
-    
-    // Fallback: guardar en knowledge_base como base64
-    const fallbackResp = await fetch(SUPABASE_URL + "/rest/v1/knowledge_base", {
+    // Guardar en la tabla 'archivos' de Supabase
+    const resp = await fetch(SUPABASE_URL + "/rest/v1/archivos", {
       method: "POST",
       headers: {
         "Content-Type": "application/json",
         "apikey": SUPABASE_KEY,
-        "Authorization": "Bearer " + SUPABASE_KEY
+        "Authorization": "Bearer " + SUPABASE_KEY,
+        "Prefer": "return=representation"
       },
       body: JSON.stringify({
-        fuente: "upload-fallback",
-        titulo: fileName,
-        contenido: base64Data.substring(0, 5000), // limitar tamaño
-        tema: "archivo",
-        credibilidad: "interna",
-        fecha: new Date().toISOString()
+        nombre: fileName,
+        tipo: req.file.mimetype,
+        data: base64Data
       })
     });
     
-    if (fallbackResp.ok) {
-      return res.json({ status: "ok", mensaje: "Archivo almacenado en base de conocimiento (base64)", nombre: fileName, metodo: "fallback" });
+    if (resp.ok) {
+      const inserted = await resp.json();
+      const id = inserted[0]?.id || "desconocido";
+      return res.json({ status: "ok", mensaje: "Archivo almacenado en base de datos", id, nombre: fileName, tipo: req.file.mimetype });
+    } else {
+      const err = await resp.text();
+      return res.status(500).json({ error: "Error al guardar en la base de datos: " + err });
     }
-    
-    const err = await resp.text();
-    res.status(500).json({ error: "Error al subir: bucket no disponible y fallback falló." });
   } catch(e) {
     res.status(500).json({ error: e.message });
   }

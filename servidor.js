@@ -509,6 +509,86 @@ app.ws("/terminal", (ws, req) => {
   ws.on("close", () => console.log("Terminal WebSocket cerrada."));
 });
 
+
+// ════ SISTEMA DE CONOCIMIENTO + MEMORIA PERSISTENTE ════
+async function guardarMemoria(agenteId, sessionId, tipo, contenido, metadata = {}) {
+  try {
+    await fetch(SUPABASE_URL + "/rest/v1/agent_memory", {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        "apikey": SUPABASE_KEY,
+        "Authorization": "Bearer " + SUPABASE_KEY
+      },
+      body: JSON.stringify({
+        agente_id: agenteId,
+        session_id: sessionId,
+        tipo: tipo, // "chat" o "terminal"
+        contenido: contenido,
+        metadata: metadata,
+        timestamp: new Date().toISOString()
+      })
+    });
+  } catch(e) {
+    console.warn("Error guardando memoria:", e.message);
+  }
+}
+
+async function buscarMemoriaAgente(agenteId, sessionId, limite = 10) {
+  try {
+    const url = SUPABASE_URL + "/rest/v1/agent_memory?select=contenido,tipo,timestamp&agente_id=eq." + agenteId + "&session_id=eq." + sessionId + "&order=timestamp.desc&limit=" + limite;
+    const resp = await fetch(url, {
+      headers: {
+        "apikey": SUPABASE_KEY,
+        "Authorization": "Bearer " + SUPABASE_KEY
+      }
+    });
+    if (resp.ok) return await resp.json();
+  } catch(e) {
+    console.warn("Error buscando memoria de agente:", e.message);
+  }
+  return [];
+}
+
+async function buscarMemoriaGlobal(consulta, limite = 5) {
+  try {
+    const url = SUPABASE_URL + "/rest/v1/agent_memory?select=agente_id,contenido,tipo,timestamp&order=timestamp.desc&limit=50";
+    const resp = await fetch(url, {
+      headers: {
+        "apikey": SUPABASE_KEY,
+        "Authorization": "Bearer " + SUPABASE_KEY
+      }
+    });
+    if (!resp.ok) return [];
+    const registros = await resp.json();
+    // Búsqueda simple por palabras clave (sin embeddings por ahora)
+    const palabras = consulta.toLowerCase().split(/\s+/);
+    const relevantes = registros.filter(r => 
+      palabras.some(p => (r.contenido || "").toLowerCase().includes(p))
+    ).slice(0, limite);
+    return relevantes;
+  } catch(e) {
+    console.warn("Error en búsqueda global:", e.message);
+  }
+  return [];
+}
+
+
+// Endpoints de memoria
+app.get("/memoria/:agenteId", async function(req, res) {
+  const { agenteId } = req.params;
+  const sessionId = req.query.sessionId || "default";
+  const memoria = await buscarMemoriaAgente(agenteId, sessionId, 20);
+  res.json({ agente: agenteId, sessionId, memoria, total: memoria.length });
+});
+
+app.post("/memoria/buscar", async function(req, res) {
+  const { consulta } = req.body;
+  if (!consulta) return res.status(400).json({ error: "Falta consulta" });
+  const resultados = await buscarMemoriaGlobal(consulta);
+  res.json({ consulta, resultados, total: resultados.length });
+});
+
 app.listen(PORT, function() {
   console.log("FUNDORA AGENCY v2.0 Online - Puerto " + PORT);
   console.log("Agentes: " + Object.keys(AGENTES).length + " especializados en 15 sectores");

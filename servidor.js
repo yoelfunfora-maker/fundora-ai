@@ -269,9 +269,14 @@ app.post("/chat", async (req, res) => {
     memoria.totalMensajes++;
     guardarMemoria(agente, sessionId, "chat", "AGENTE: " + respuesta);
         const respuestaLimpia = (respuesta || "")
-      .replace(/[\u0000-\u001F\u007F-\u009F]/g, "")
-      .replace(/\\/g, "\\\\")
-      .replace(/"/g, '\\"');
+      .replace(/[\u0000-\u001F\u007F-\u009F]/g, '')
+      .replace(/[\u200B-\u200D\uFEFF]/g, '')
+      .replace(/\n/g, '\\n')
+      .replace(/\r/g, '\\r')
+      .replace(/\t/g, '\\t')
+      .replace(/"/g, '\\"')
+      .replace(/\\/g, '\\\\');
+    res.setHeader('Content-Type', 'application/json; charset=utf-8');
     res.json({ agente: config.nombre, respuesta: respuestaLimpia, sessionId, mensajes: memoria.totalMensajes });
   } catch(e) { res.status(500).json({ error: e.message }); }
 });
@@ -287,7 +292,15 @@ app.post("/consulta", async (req, res) => {
       body: JSON.stringify({ messages: [{ role: "system", content: config.system }, { role: "user", content: mensaje }], max_tokens: 500 })
     });
     const data = await resp.json();
-    res.json({ agente: config.nombre, respuesta: data.success ? data.result.response : "Error" });
+    const respuestaLimpia = (data.success ? data.result.response : "Error")
+      .replace(/[\u0000-\u001F\u007F-\u009F]/g, '')
+      .replace(/[\u200B-\u200D\uFEFF]/g, '')
+      .replace(/\n/g, '\\n')
+      .replace(/\r/g, '\\r')
+      .replace(/\t/g, '\\t')
+      .replace(/"/g, '\\"')
+      .replace(/\\/g, '\\\\');
+    res.json({ agente: config.nombre, respuesta: respuestaLimpia });
   } catch(e) { res.status(500).json({ error: e.message }); }
 });
 

@@ -218,7 +218,25 @@ app.post("/chat", async (req, res) => {
   try {
     guardarMemoria(agente, sessionId, "chat", "USUARIO: " + mensaje);
     // Si el usuario pide generar una imagen, optimizar el prompt automáticamente
-    let mensajeOptimizado = mensaje;
+    if (mensaje.toLowerCase().includes("genera") && (mensaje.toLowerCase().includes("imagen") || mensaje.toLowerCase().includes("logo") || mensaje.toLowerCase().includes("foto"))) {
+      try {
+        const agenteOpt = AGENTES.director;
+        const respOpt = await fetch("https://api.cloudflare.com/client/v4/accounts/" + CF_ACCOUNT_ID + "/ai/run/" + agenteOpt.modelo, {
+          method: "POST",
+          headers: { "Authorization": "Bearer " + CF_TOKEN, "Content-Type": "application/json" },
+          body: JSON.stringify({
+            messages: [
+              { role: "system", content: agenteOpt.system + " Eres experto en prompts visuales. Responde SOLO con el prompt optimizado." },
+              { role: "user", content: "Optimiza: " + mensaje }
+            ],
+            max_tokens: 150
+          })
+        });
+        const dataOpt = await respOpt.json();
+        if (dataOpt.success) mensajeOptimizado = "Genera una imagen con el siguiente prompt: " + dataOpt.result.response.trim();
+      } catch(e) {}
+    }
+    // Si el usuario pide generar una imagen, optimizar el prompt automáticamente
     if (mensaje.toLowerCase().includes("genera") && (mensaje.toLowerCase().includes("imagen") || mensaje.toLowerCase().includes("logo") || mensaje.toLowerCase().includes("foto"))) {
       try {
         const agenteOpt = AGENTES.director;
@@ -464,6 +482,56 @@ app.post("/upload", upload.single("archivo"), async (req, res) => {
     }
   } catch(e) {
     res.status(500).json({ error: e.message });
+  }
+});
+
+
+// ════ GENERACIÓN LOCAL (sin límites) ════
+app.post("/generar/imagen-local", async (req, res) => {
+  const { prompt } = req.body;
+  if (!prompt) return res.status(400).json({ error: "Falta prompt" });
+  
+  // Optimizar prompt con agente director
+  let promptOptimizado = prompt;
+  try {
+    const agente = AGENTES.director;
+    const url = "https://api.cloudflare.com/client/v4/accounts/" + CF_ACCOUNT_ID + "/ai/run/" + agente.modelo;
+    const resp = await fetch(url, {
+      method: "POST",
+      headers: { "Authorization": "Bearer " + CF_TOKEN, "Content-Type": "application/json" },
+      body: JSON.stringify({
+        messages: [
+          { role: "system", content: agente.system + " Eres experto en crear prompts visuales para Stable Diffusion. Responde SOLO con el prompt optimizado, sin explicaciones." },
+          { role: "user", content: "Optimiza este prompt para generar una imagen de alta calidad: " + prompt }
+        ],
+        max_tokens: 150
+      })
+    });
+    const data = await resp.json();
+    if (data.success) promptOptimizado = data.result.response.trim();
+  } catch(e) { console.warn("Error optimizando prompt:", e.message); }
+  
+  // Lanzar generación en proceso hijo
+  const { spawn } = require("child_process");
+  const tareaId = Date.now().toString(36);
+  const child = spawn("python3", [path.join(__dirname, "generar_imagen.py"), promptOptimizado, tareaId], {
+    detached: true,
+    stdio: "ignore"
+  });
+  child.unref();
+  
+  res.json({ status: "ok", tareaId, mensaje: "Generación iniciada en segundo plano.", prompt_original: prompt, prompt_optimizado: promptOptimizado });
+});
+
+// Endpoint para consultar el estado de una tarea
+app.get("/generar/estado/:tareaId", (req, res) => {
+  const { tareaId } = req.params;
+  const resultPath = path.join(__dirname, "generaciones", tareaId + ".json");
+  if (fs.existsSync(resultPath)) {
+    const data = JSON.parse(fs.readFileSync(resultPath, "utf8"));
+    res.json({ status: "completado", imagen: data.imagen });
+  } else {
+    res.json({ status: "en_progreso", tareaId });
   }
 });
 

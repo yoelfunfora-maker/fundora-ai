@@ -359,12 +359,19 @@ app.post("/generar/imagen", async (req, res) => {
       headers: { "Authorization": "Bearer " + CF_TOKEN, "Content-Type": "application/json" },
       body: JSON.stringify({ prompt, num_steps: 20 })
     });
-    const data = await resp.json();
-    if (data.success) {
-      const base64 = Buffer.from(data.result.image, 'base64').toString('base64');
-      res.json({ status: "ok", imagen: "data:image/png;base64," + base64 });
+    const contentType = resp.headers.get("content-type") || "";
+    if (contentType.includes("application/json")) {
+      const data = await resp.json();
+      if (data.success) {
+        const base64 = Buffer.from(data.result.image, 'base64').toString('base64');
+        res.json({ status: "ok", imagen: "data:image/png;base64," + base64 });
+      } else {
+        res.json({ status: "error", mensaje: "Error: " + JSON.stringify(data.errors) });
+      }
     } else {
-      res.json({ status: "error", mensaje: "Error: " + JSON.stringify(data.errors) });
+      const buffer = await resp.arrayBuffer();
+      const base64 = Buffer.from(buffer).toString('base64');
+      res.json({ status: "ok", imagen: "data:image/png;base64," + base64 });
     }
   } catch(e) {
     res.status(500).json({ error: e.message });

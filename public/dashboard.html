@@ -113,7 +113,12 @@
                     body: JSON.stringify({ mensaje: msg, agente, sessionId: 'dashboard-' + agente })
                 });
                 const data = await resp.json();
-                const respuesta = data.respuesta || (data.error ? 'Error: ' + data.error : 'Sin respuesta del agente.');
+                const respuestaRaw = data.respuesta || (data.error ? 'Error: ' + data.error : 'Sin respuesta del agente.');
+                // Limpiar caracteres de control y saltos de línea
+                const respuesta = respuestaRaw
+                    .replace(/\n/g, '<br>')
+                    .replace(/[\x00-\x1F\x7F]/g, '')
+                    .replace(/\\/g, '&#92;');
                 addMessage(respuesta, 'agent');
             } catch(e) {
                 addMessage('Error de conexión con el servidor.', 'agent');

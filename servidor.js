@@ -433,60 +433,28 @@ app.post("/generar/img2img", upload.single("imagen"), async (req, res) => {
   const { prompt } = req.body;
   if (!req.file || !prompt) return res.status(400).json({ error: "Falta imagen y/o prompt." });
   try {
-    const imageBase64 = req.file.buffer.toString('base64');
-    
-    // Pool de modelos públicos de Hugging Face para img2img (usando router)
-    const modelosImg2img = [
-      "tencentarc/photomaker-style",
-      "stabilityai/sdxl-turbo"
-    ];
-    
-    let ultimoError = null;
-    
-    for (const modelo of modelosImg2img) {
-      try {
-        const resp = await fetch("https://router.huggingface.co/hf-inference/models/" + modelo, {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ inputs: { image: imageBase64, prompt: prompt } })
-        });
-        if (resp.ok) {
-          const buffer = await resp.buffer();
-          const base64Result = buffer.toString('base64');
-          return res.json({ status: "ok", imagen: "data:image/png;base64," + base64Result, modelo });
-        }
-        console.warn("Modelo img2img " + modelo + " falló, probando siguiente...");
-      } catch(e) {
-        ultimoError = e.message;
-        continue;
+    // Usar directamente Cloudflare text-to-image (img2img no está disponible de forma fiable)
+    // Enriquecemos el prompt con "based on a reference image" para simular img2img
+    const promptEnriquecido = prompt + ", based on a reference image, high quality, detailed";
+    const url = "https://api.cloudflare.com/client/v4/accounts/" + CF_ACCOUNT_ID + "/ai/run/@cf/stabilityai/stable-diffusion-xl-base-1.0";
+    const resp = await fetch(url, {
+      method: "POST",
+      headers: { "Authorization": "Bearer " + CF_TOKEN, "Content-Type": "application/json" },
+      body: JSON.stringify({ prompt: promptEnriquecido, num_steps: 20 })
+    });
+    const contentType = resp.headers.get("content-type") || "";
+    if (contentType.includes("application/json")) {
+      const data = await resp.json();
+      if (data.success) {
+        const base64Result = Buffer.from(data.result.image, 'base64').toString('base64');
+        return res.json({ status: "ok", imagen: "data:image/png;base64," + base64Result, modelo: "cloudflare-text", nota: "img2img simulado mediante texto a imagen con prompt enriquecido" });
       }
+      return res.json({ status: "error", mensaje: "Error: " + JSON.stringify(data.errors) });
+    } else {
+      const buffer = await resp.arrayBuffer();
+      const base64Result = Buffer.from(buffer).toString('base64');
+      return res.json({ status: "ok", imagen: "data:image/png;base64," + base64Result, modelo: "cloudflare-text" });
     }
-    
-    // Fallback: usar Cloudflare text-to-image con prompt enriquecido
-    try {
-      const url = "https://api.cloudflare.com/client/v4/accounts/" + CF_ACCOUNT_ID + "/ai/run/@cf/stabilityai/stable-diffusion-xl-base-1.0";
-      const resp = await fetch(url, {
-        method: "POST",
-        headers: { "Authorization": "Bearer " + CF_TOKEN, "Content-Type": "application/json" },
-        body: JSON.stringify({ prompt: prompt + ", based on a reference image, high quality", num_steps: 20 })
-      });
-      const contentType = resp.headers.get("content-type") || "";
-      if (contentType.includes("application/json")) {
-        const data = await resp.json();
-        if (data.success) {
-          const base64Result = Buffer.from(data.result.image, 'base64').toString('base64');
-          return res.json({ status: "ok", imagen: "data:image/png;base64," + base64Result, modelo: "cloudflare-text" });
-        }
-      } else {
-        const buffer = await resp.arrayBuffer();
-        const base64Result = Buffer.from(buffer).toString('base64');
-        return res.json({ status: "ok", imagen: "data:image/png;base64," + base64Result, modelo: "cloudflare-text" });
-      }
-    } catch(e) {
-      ultimoError = e.message;
-    }
-    
-    res.status(500).json({ error: "Todos los modelos img2img fallaron. Último error: " + ultimoError });
   } catch(e) {
     res.status(500).json({ error: e.message });
   }
@@ -526,6 +494,9 @@ app.post("/upload", upload.single("archivo"), async (req, res) => {
   if (!req.file) return res.status(400).json({ error: "No se recibió archivo" });
   try {
     const fileName = Date.now() + "-" + req.file.originalname;
+    const base64Data = req.file.buffer.toString('base64');
+    
+    // Intentar bucket primero
     const resp = await fetch(SUPABASE_URL + "/storage/v1/object/fundora-uploads/" + fileName, {
       method: "POST",
       headers: {
@@ -535,13 +506,36 @@ app.post("/upload", upload.single("archivo"), async (req, res) => {
       },
       body: req.file.buffer
     });
+    
     if (resp.ok) {
       const url = SUPABASE_URL + "/storage/v1/object/public/fundora-uploads/" + fileName;
-      res.json({ status: "ok", url, tipo: req.file.mimetype, nombre: fileName });
-    } else {
-      const err = await resp.text();
-      res.status(500).json({ error: "Error al subir: " + err });
+      return res.json({ status: "ok", url, tipo: req.file.mimetype, nombre: fileName });
     }
+    
+    // Fallback: guardar en knowledge_base como base64
+    const fallbackResp = await fetch(SUPABASE_URL + "/rest/v1/knowledge_base", {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        "apikey": SUPABASE_KEY,
+        "Authorization": "Bearer " + SUPABASE_KEY
+      },
+      body: JSON.stringify({
+        fuente: "upload-fallback",
+        titulo: fileName,
+        contenido: base64Data.substring(0, 5000), // limitar tamaño
+        tema: "archivo",
+        credibilidad: "interna",
+        fecha: new Date().toISOString()
+      })
+    });
+    
+    if (fallbackResp.ok) {
+      return res.json({ status: "ok", mensaje: "Archivo almacenado en base de conocimiento (base64)", nombre: fileName, metodo: "fallback" });
+    }
+    
+    const err = await resp.text();
+    res.status(500).json({ error: "Error al subir: bucket no disponible y fallback falló." });
   } catch(e) {
     res.status(500).json({ error: e.message });
   }

@@ -68,10 +68,22 @@
         term.open(document.getElementById('terminal-container'));
         fitAddon.fit();
         
-        const ws = new WebSocket((location.protocol === 'https:' ? 'wss://' : 'ws://') + location.host + '/terminal');
-        ws.onmessage = (e) => { term.write(e.data); };
-        ws.onopen = () => { term.writeln('🟢 Conectado al servidor.'); };
-        ws.onclose = () => { term.writeln('🔴 Conexión perdida.'); };
+        let ws;
+        let wsReconnectAttempts = 0;
+
+        function connectWebSocket() {
+            ws = new WebSocket((location.protocol === 'https:' ? 'wss://' : 'ws://') + location.host + '/terminal');
+            ws.onmessage = (e) => { term.write(e.data); };
+            ws.onopen = () => {
+                wsReconnectAttempts = 0;
+                term.writeln('🟢 Conectado al servidor.');
+            };
+            ws.onclose = () => {
+                term.writeln('🔴 Conexión perdida. Reconectando en ' + (Math.min(wsReconnectAttempts + 1, 5) * 2) + 's...');
+                setTimeout(connectWebSocket, Math.min(++wsReconnectAttempts, 5) * 2000);
+            };
+        }
+        connectWebSocket();
         
         term.onData((data) => {
             if (ws.readyState === WebSocket.OPEN) {
@@ -97,7 +109,27 @@
             rastreador: 'Rastreador'
         };
 
+        let typingIndicator = null;
+
+        function showTyping() {
+            if (!typingIndicator) {
+                typingIndicator = document.createElement('div');
+                typingIndicator.className = 'msg agent';
+                typingIndicator.innerHTML = '<strong>' + (agentNames[agentSelect.value] || agentSelect.value) + ':</strong> <em>escribiendo...</em>';
+                messagesDiv.appendChild(typingIndicator);
+                messagesDiv.scrollTop = messagesDiv.scrollHeight;
+            }
+        }
+
+        function hideTyping() {
+            if (typingIndicator) {
+                typingIndicator.remove();
+                typingIndicator = null;
+            }
+        }
+
         function addMessage(text, role) {
+            hideTyping();
             const div = document.createElement('div');
             div.className = 'msg ' + (role === 'user' ? 'user' : 'agent');
             const displayName = role === 'user' ? 'Tú' : (agentNames[agentSelect.value] || agentSelect.value);
@@ -113,6 +145,7 @@
             addMessage(msg, 'user');
             input.value = '';
             sendBtn.disabled = true;
+            showTyping();
             try {
                 const resp = await fetch('/chat', {
                     method: 'POST',

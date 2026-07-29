@@ -7,6 +7,8 @@ const fs = require("fs");
 const os = require("os");
 
 const app = express();
+const multer = require("multer");
+const upload = multer({ storage: multer.memoryStorage() });
 const expressWs = require("express-ws")(app);
 
 // ==================== CONFIGURACIÓN ====================
@@ -224,13 +226,15 @@ app.post("/chat", async (req, res) => {
       body: JSON.stringify({ messages: memoria.historial, max_tokens: 1000 })
     });
     const data = await resp.json();
-    const respuestaRaw = data.success ? data.result.response : "Error al generar respuesta.";
-    // Limpiar escapes Unicode y saltos de línea literales
-    const respuesta = decodeURIComponent(JSON.parse('"' + respuestaRaw.replace(/"/g, '\"') + '"'));
+    const respuesta = data.success ? data.result.response : "Error al generar respuesta.";
     memoria.historial.push({ role: "assistant", content: respuesta });
     memoria.totalMensajes++;
     guardarMemoria(agente, sessionId, "chat", "AGENTE: " + respuesta);
-    res.json({ agente: config.nombre, respuesta, sessionId, mensajes: memoria.totalMensajes });
+        const respuestaLimpia = (respuesta || "")
+      .replace(/[\u0000-\u001F\u007F-\u009F]/g, "")
+      .replace(/\\/g, "\\\\")
+      .replace(/"/g, '\\"');
+    res.json({ agente: config.nombre, respuesta: respuestaLimpia, sessionId, mensajes: memoria.totalMensajes });
   } catch(e) { res.status(500).json({ error: e.message }); }
 });
 
@@ -345,23 +349,95 @@ app.ws("/terminal", (ws, req) => {
 app.get("/dashboard", (req, res) => res.sendFile(path.join(__dirname, "public", "dashboard.html")));
 
 
-app.get("/memoria/:agenteId", async (req, res) => {
-  const { agenteId } = req.params;
-  const sessionId = req.query.sessionId || "default";
+app.post("/generar/imagen", async (req, res) => {
+  const { prompt } = req.body;
+  if (!prompt) return res.status(400).json({ error: "Falta prompt" });
   try {
-    const resp = await fetch(SUPABASE_URL + "/rest/v1/agent_memory?select=contenido,tipo,timestamp&agente_id=eq." + agenteId + "&session_id=eq." + sessionId + "&order=timestamp.desc&limit=20", {
-      headers: { "apikey": SUPABASE_KEY, "Authorization": "Bearer " + SUPABASE_KEY }
+    const url = "https://api.cloudflare.com/client/v4/accounts/" + CF_ACCOUNT_ID + "/ai/run/@cf/stabilityai/stable-diffusion-xl-base-1.0";
+    const resp = await fetch(url, {
+      method: "POST",
+      headers: { "Authorization": "Bearer " + CF_TOKEN, "Content-Type": "application/json" },
+      body: JSON.stringify({ prompt, num_steps: 20 })
     });
-    const memoria = await resp.json();
-    res.json({ agente: agenteId, sessionId, memoria, total: memoria.length });
-  } catch(e) { res.status(500).json({ error: e.message }); }
+    const data = await resp.json();
+    if (data.success) {
+      const base64 = Buffer.from(data.result.image, 'base64').toString('base64');
+      res.json({ status: "ok", imagen: "data:image/png;base64," + base64 });
+    } else {
+      res.json({ status: "error", mensaje: "Error: " + JSON.stringify(data.errors) });
+    }
+  } catch(e) {
+    res.status(500).json({ error: e.message });
+  }
 });
 
-app.post("/memoria/buscar", async (req, res) => {
-  const { consulta } = req.body;
-  if (!consulta) return res.status(400).json({ error: "Falta consulta" });
-  const resultados = await buscarMemoriaGlobal(consulta);
-  res.json({ consulta, resultados, total: resultados.length });
+app.post("/generar/img2img", upload.single("imagen"), async (req, res) => {
+  const { prompt } = req.body;
+  if (!req.file || !prompt) return res.status(400).json({ error: "Falta imagen y/o prompt" });
+  try {
+    const imageBase64 = req.file.buffer.toString('base64');
+    const url = "https://api.cloudflare.com/client/v4/accounts/" + CF_ACCOUNT_ID + "/ai/run/@cf/stabilityai/stable-diffusion-xl-base-1.0-img2img";
+    const resp = await fetch(url, {
+      method: "POST",
+      headers: { "Authorization": "Bearer " + CF_TOKEN, "Content-Type": "application/json" },
+      body: JSON.stringify({ prompt, image: imageBase64, num_steps: 25, strength: 0.7 })
+    });
+    const data = await resp.json();
+    if (data.success) {
+      const base64Result = Buffer.from(data.result.image, 'base64').toString('base64');
+      res.json({ status: "ok", imagen: "data:image/png;base64," + base64Result });
+    } else {
+      res.json({ status: "error", mensaje: "Error: " + JSON.stringify(data.errors) });
+    }
+  } catch(e) {
+    res.status(500).json({ error: e.message });
+  }
+});
+
+app.post("/generar/video", async (req, res) => {
+  const { prompt } = req.body;
+  if (!prompt) return res.status(400).json({ error: "Falta prompt" });
+  try {
+    const resp = await fetch("https://api-inference.huggingface.co/models/damo-vilab/text-to-video-ms-1.7b", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ inputs: prompt })
+    });
+    if (resp.ok) {
+      const buffer = await resp.buffer();
+      const base64 = buffer.toString('base64');
+      res.json({ status: "ok", video: "data:video/mp4;base64," + base64 });
+    } else {
+      res.json({ status: "error", mensaje: "Modelo no disponible." });
+    }
+  } catch(e) {
+    res.status(500).json({ error: e.message });
+  }
+});
+
+app.post("/upload", upload.single("archivo"), async (req, res) => {
+  if (!req.file) return res.status(400).json({ error: "No se recibió archivo" });
+  try {
+    const fileName = Date.now() + "-" + req.file.originalname;
+    const resp = await fetch(SUPABASE_URL + "/storage/v1/object/fundora-uploads/" + fileName, {
+      method: "POST",
+      headers: {
+        "Authorization": "Bearer " + SUPABASE_KEY,
+        "apikey": SUPABASE_KEY,
+        "Content-Type": req.file.mimetype
+      },
+      body: req.file.buffer
+    });
+    if (resp.ok) {
+      const url = SUPABASE_URL + "/storage/v1/object/public/fundora-uploads/" + fileName;
+      res.json({ status: "ok", url, tipo: req.file.mimetype, nombre: fileName });
+    } else {
+      const err = await resp.text();
+      res.status(500).json({ error: "Error al subir: " + err });
+    }
+  } catch(e) {
+    res.status(500).json({ error: e.message });
+  }
 });
 
 app.listen(PORT, () => console.log("✅ FUNDORA AGENCY v3.0 en puerto " + PORT + " | Agentes: " + Object.keys(AGENTES).length));

@@ -99,7 +99,7 @@ const AGENTES = {
   ceo: {
     nombre: "CEO Fundora Prime",
     modelo: "@cf/meta/llama-3.3-70b-instruct-fp8-fast",
-    system: "Eres el CEO de Fundora Agency AI, un clon digital de Yoel Fundora. Conoces BetGroup, Fundora AI, reglas de negocio, independencia tecnológica."
+    system: "Eres el CEO de Fundora Agency AI, un clon digital de Yoel Fundora. Conoces Fundora AI, reglas de negocio, independencia tecnológica."
   }
 };
 
@@ -1005,8 +1005,6 @@ app.post("/generar/pdf", async (req, res) => {
 });
 
 
-// ════ INTEGRACIÓN CON BETGROUP PRO (RECOMENDADO POR ANALISTA) ════
-const BETGROUP_PROXY = "https://betgroup-proxy-v2-8vqj.onrender.com";
 app.post("/betgroup/odds", async (req, res) => {
     const { sport = "soccer_epl" } = req.body;
     try {

@@ -69,7 +69,7 @@ const AGENTES = {
   general: {
     nombre: "FUNDORA AI",
     modelo: "@cf/meta/llama-3.3-70b-instruct-fp8-fast",
-    system: "Eres FUNDORA AI, el asistente central de la agencia Fundora Prime Atlantic LLC. Tienes acceso a generacion de imagenes (con Cloudflare y Hugging Face), generacion de video (pool de modelos Hugging Face), subida de archivos, y una terminal WebSocket. Puedes coordinar a los 11 agentes especializados (programador, analista, CEO, rastreador, corrector, verificador, supervisor, etc.). Cuando un usuario te pida una imagen, dile que puedes generarla y preguntale si quiere que lo hagas. NO digas que no puedes generar imagenes o videos. Siempre ofrece usar los endpoints multimedia disponibles."
+    system: "Eres FUNDORA AI, el asistente central de la agencia Fundora Prime Atlantic LLC. Eres cálido, empático y motivador, como un amigo experto en tecnología. Tienes acceso a generacion de imagenes (Cloudflare, Hugging Face), generacion de video (pool Hugging Face), subida de archivos, y una terminal WebSocket. Coordinas a 11 agentes especializados. Cuando un usuario pida una imagen o video, dile que puedes generarlo y pregúntale si quiere que lo hagas. NO digas que no puedes. Siempre ofrece usar los endpoints multimedia. Usa emojis con moderación y un tono positivo y alentador."
   },
   programador: {
     nombre: "FUNDORA DEV",
@@ -79,7 +79,7 @@ const AGENTES = {
   psicologo: {
     nombre: "FUNDORA MIND",
     modelo: "@cf/meta/llama-3.3-70b-instruct-fp8-fast",
-    system: "Eres FUNDORA MIND, especialista en psicologia y bienestar digital."
+    system: "Eres FUNDORA MIND, especialista en psicologia y bienestar digital. Tu tono es cálido, comprensivo y alentador. Ayudas a los usuarios a sentirse bien, motivados y productivos. Usas empatía y escucha activa. Recomiendas pausas, ejercicios mentales y buenas prácticas digitales. Eres un coach de bienestar."
   },
   abogado: {
     nombre: "FUNDORA LEX",
@@ -225,6 +225,19 @@ function limpiarSandbox(dir) {
 
 // ==================== MIDDLEWARE ====================
 app.use(express.json());
+
+// ════ AUTENTICACIÓN POR API KEY (RECOMENDADO POR PROGRAMADOR) ════
+const API_KEYS = (process.env.API_KEYS || "fundora-admin-key-2026").split(",");
+function verificarApiKey(req, res, next) {
+    const key = req.headers["x-api-key"];
+    if (!key || !API_KEYS.includes(key)) return res.status(403).json({ error: "API Key inválida. Obtén una en /auth/login." });
+    next();
+}
+// Proteger rutas sensibles
+app.use("/admin", verificarApiKey);
+app.use("/ejecutar", verificarApiKey);
+app.use("/sql", verificarApiKey);
+
 
 app.use((req, res, next) => {
   logger.info(`${req.method} ${req.path}`);
@@ -989,6 +1002,37 @@ app.post("/generar/pdf", async (req, res) => {
   } catch(e) {
     res.status(500).json({ error: e.message });
   }
+});
+
+
+// ════ INTEGRACIÓN CON BETGROUP PRO (RECOMENDADO POR ANALISTA) ════
+const BETGROUP_PROXY = "https://betgroup-proxy-v2-8vqj.onrender.com";
+app.post("/betgroup/odds", async (req, res) => {
+    const { sport = "soccer_epl" } = req.body;
+    try {
+        const resp = await fetch(`https://api.the-odds-api.com/v4/sports/${sport}/odds?apiKey=e18abd8956512f34027f0ac3f87fbe52&markets=h2h&regions=us`);
+        const data = await resp.json();
+        res.json({ status: "ok", data });
+    } catch(e) { res.status(500).json({ error: e.message }); }
+});
+
+
+// ════ SISTEMA DE SUSCRIPCIÓN (RECOMENDADO POR CEO) ════
+app.post("/suscripcion", async (req, res) => {
+    const { plan = "gratuito" } = req.body;
+    const planes = {
+        gratuito: { precio: 0, limites: { imagenes: 10, videos: 2, pdfs: 5 } },
+        pro: { precio: 9.99, limites: { imagenes: 100, videos: 20, pdfs: 50 } },
+        enterprise: { precio: 49.99, limites: { imagenes: 1000, videos: 200, pdfs: 500 } }
+    };
+    const datos = planes[plan] || planes.gratuito;
+    // Guardar en Supabase
+    await fetch(SUPABASE_URL + "/rest/v1/suscripciones", {
+        method: "POST",
+        headers: { "Content-Type": "application/json", "apikey": SUPABASE_KEY, "Authorization": "Bearer " + SUPABASE_KEY },
+        body: JSON.stringify({ plan, ...datos, fecha: new Date().toISOString() })
+    });
+    res.json({ status: "ok", plan, datos });
 });
 
 app.listen(PORT, () => console.log("✅ FUNDORA AGENCY v3.0 en puerto " + PORT + " | Agentes: " + Object.keys(AGENTES).length));

@@ -255,7 +255,30 @@
             <div id="chat-messages">
                 <div class="msg agent"><strong>Fundora AI:</strong> Dashboard conectado. Selecciona un agente y escribe tu mensaje.</div>
             </div>
-            <div id="chat-input-area" style="flex-wrap:wrap;">
+            <!-- ESTUDIO DE CREACIÓN -->
+<div id="studio-panel" style="padding:10px 20px; background:var(--bg-secondary); border-top:1px solid var(--border); display:none;">
+  <div style="display:flex; gap:10px; align-items:center; flex-wrap:wrap;">
+    <span style="color:var(--accent-gold); font-weight:600;">🎨 ESTUDIO</span>
+    <select id="resolucion" style="background:var(--bg-tertiary); color:var(--text-primary); border:1px solid var(--border); border-radius:8px; padding:6px 10px; font-size:12px;">
+      <option value="480p">480p</option>
+      <option value="720p">720p</option>
+      <option value="1080p" selected>1080p</option>
+      <option value="2k">2K</option>
+      <option value="4k">4K</option>
+      <option value="8k">8K</option>
+    </select>
+    <select id="aspecto" style="background:var(--bg-tertiary); color:var(--text-primary); border:1px solid var(--border); border-radius:8px; padding:6px 10px; font-size:12px;">
+      <option value="auto">Automático</option>
+      <option value="1:1">1:1 (Cuadrado)</option>
+      <option value="16:9">16:9 (Horizontal)</option>
+      <option value="9:16">9:16 (Vertical)</option>
+      <option value="4:3">4:3</option>
+      <option value="3:4">3:4</option>
+    </select>
+    <button onclick="toggleStudio()" style="background:var(--bg-tertiary); color:var(--text-secondary); border:1px solid var(--border); border-radius:8px; padding:6px 12px; cursor:pointer; font-size:12px;">✕</button>
+  </div>
+</div>
+<div id="chat-input-area" style="flex-wrap:wrap;">
                 <button onclick="generarImagen()" class="btn-gold" style="border:none;border-radius:8px;padding:6px 12px;font-weight:bold;cursor:pointer;margin-right:8px;">🖼️ Imagen</button>
                 <button onclick="generarVideo()" class="btn-purple" style="border:none;border-radius:8px;padding:6px 12px;font-weight:bold;cursor:pointer;margin-right:8px;">🎬 Video</button>
                 <button onclick="generarPDF()" class="btn-red" style="border:none;border-radius:8px;padding:6px 12px;font-weight:bold;cursor:pointer;margin-right:8px;">📄 PDF</button>
@@ -464,6 +487,100 @@ function deleteSession(agentId) {
         alert('Error al borrar. Se limpiará localmente.');
     });
 }
+function toggleStudio() {
+    var panel = document.getElementById('studio-panel');
+    if (panel.style.display === 'none' || panel.style.display === '') {
+        panel.style.display = 'block';
+    } else {
+        panel.style.display = 'none';
+    }
+}
+
+function toggleGallery() {
+    var modal = document.getElementById('gallery-modal');
+    if (modal.style.display === 'none' || modal.style.display === '') {
+        modal.style.display = 'block';
+        loadGallery();
+    } else {
+        modal.style.display = 'none';
+    }
+}
+
+async function loadGallery() {
+    var grid = document.getElementById('gallery-grid');
+    grid.innerHTML = '<p style="color:var(--text-secondary);">Cargando galería...</p>';
+    try {
+        var resp = await fetch('/biblioteca');
+        var data = await resp.json();
+        if (data.status === 'ok' && data.creaciones.length > 0) {
+            grid.innerHTML = '';
+            data.creaciones.forEach(function(item) {
+                var card = document.createElement('div');
+                card.style.cssText = 'background:var(--bg-secondary); border:1px solid var(--border); border-radius:12px; overflow:hidden;';
+                card.innerHTML = '<img src="' + item.imagen + '" style="width:100%; aspect-ratio:1/1; object-fit:cover;" onerror="this.src=\'data:image/svg+xml,<svg xmlns=%22http://www.w3.org/2000/svg%22 width=%22100%22 height=%22100%22><rect fill=%22%23333%22 width=%22100%22 height=%22100%22/></svg>\'"/>' +
+                    '<div style="padding:8px;"><p style="font-size:11px; color:var(--text-secondary);">' + item.prompt.substring(0, 60) + '</p>' +
+                    '<span style="font-size:10px; color:var(--accent-blue);">' + item.resolucion + ' ' + item.aspecto + '</span></div>' +
+                    '<div style="padding:8px; display:flex; gap:4px;">' +
+                    '<button onclick="downloadImage(this, \'' + item.imagen + '\')" class="btn-blue" style="flex:1; padding:4px 8px; font-size:10px;">📥</button>' +
+                    '<button onclick="viewFullImage(\'' + item.imagen + '\')" class="btn-gold" style="flex:1; padding:4px 8px; font-size:10px;">🔍</button></div>';
+                grid.appendChild(card);
+            });
+        } else {
+            grid.innerHTML = '<p style="color:var(--text-secondary);">No hay creaciones aún. ¡Genera tu primera imagen!</p>';
+        }
+    } catch(e) {
+        grid.innerHTML = '<p style="color:var(--accent-red);">Error al cargar galería.</p>';
+    }
+}
+
+function downloadImage(btn, url) {
+    var a = document.createElement('a');
+    a.href = url;
+    a.download = 'fundora-' + Date.now() + '.png';
+    a.click();
+    btn.textContent = '✅';
+    setTimeout(function() { btn.textContent = '📥'; }, 1500);
+}
+
+function viewFullImage(url) {
+    var win = window.open('', '_blank');
+    win.document.write('<img src="' + url + '" style="max-width:100%; height:auto;" />');
+}
+
+// Modificar generarImagen para usar resolución y aspecto
+async function generarImagen() {
+    var msg = input.value.trim();
+    if (!msg) { alert('Escribe un prompt para la imagen.'); return; }
+    var prompt = msg;
+    var resolucion = document.getElementById('resolucion')?.value || '1080p';
+    var aspecto = document.getElementById('aspecto')?.value || 'auto';
+    addMessage('🖼️ Generando imagen (' + resolucion + ', ' + aspecto + '): ' + prompt, 'user');
+    input.value = '';
+    sendBtn.disabled = true;
+    showTyping();
+    try {
+        var resp = await fetch('/generar/imagen', {
+            method: 'POST',
+            headers: {'Content-Type': 'application/json'},
+            body: JSON.stringify({ prompt, resolucion, aspecto })
+        });
+        var data = await resp.json();
+        hideTyping();
+        if (data.status === 'ok' && data.imagen) {
+            var imgHtml = '<img src="' + data.imagen + '" style="max-width:100%;border-radius:8px;margin-top:4px;"/>';
+            imgHtml += '<br><small style="color:var(--text-secondary);">' + data.resolucion + ' | ' + data.aspecto + '</small>';
+            addMessage(imgHtml, 'agent');
+        } else {
+            addMessage('❌ Error: ' + (data.mensaje || data.error || 'Desconocido'), 'agent');
+        }
+    } catch(e) {
+        hideTyping();
+        addMessage('Error de conexión al generar imagen.', 'agent');
+    } finally {
+        sendBtn.disabled = false;
+    }
+}
+
 function clearChat() {
   document.getElementById('chat-messages').innerHTML = '<div class="msg agent"><strong>Fundora AI:</strong> Chat limpiado.</div>';
 }
@@ -591,5 +708,17 @@ async function generarImagen() {
         sendBtn.addEventListener('click', sendMessage);
         input.addEventListener('keypress', e => { if (e.key === 'Enter') sendMessage(); });
     </script>
+
+<!-- GALERÍA MODAL -->
+<div id="gallery-modal" style="display:none; position:fixed; top:0; left:0; width:100%; height:100%; background:rgba(0,0,0,0.9); z-index:9999; overflow-y:auto;">
+  <div style="max-width:1200px; margin:40px auto; padding:20px;">
+    <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:20px;">
+      <h2 style="color:var(--accent-gold);">🖼️ Galería de Creaciones</h2>
+      <button onclick="toggleGallery()" style="background:var(--accent-red); color:#fff; border:none; border-radius:8px; padding:8px 16px; cursor:pointer; font-size:14px;">✕ Cerrar</button>
+    </div>
+    <div id="gallery-grid" style="display:grid; grid-template-columns:repeat(auto-fill, minmax(250px, 1fr)); gap:16px;"></div>
+  </div>
+</div>
+
 </body>
 </html>

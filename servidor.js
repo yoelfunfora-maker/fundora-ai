@@ -445,14 +445,35 @@ app.get("/dashboard", (req, res) => res.sendFile(path.join(__dirname, "public", 
 
 
 app.post("/generar/imagen", async (req, res) => {
-  const { prompt, upscale = false } = req.body;
+  const { prompt, upscale = false, resolucion = "1080p", aspecto = "auto" } = req.body;
   if (!prompt) return res.status(400).json({ error: "Falta prompt" });
+
+  // Calcular dimensiones según resolución y aspecto
+  const resoluciones = {
+    "480p": 480,
+    "720p": 720,
+    "1080p": 1080,
+    "2k": 1440,
+    "4k": 2160,
+    "8k": 4320
+  };
+  const base = resoluciones[resolucion] || 1024;
+  let width = base;
+  let height = base;
+
+  if (aspecto === "16:9") { width = Math.round(base * 16/9); height = base; }
+  else if (aspecto === "9:16") { width = base; height = Math.round(base * 16/9); }
+  else if (aspecto === "4:3") { width = Math.round(base * 4/3); height = base; }
+  else if (aspecto === "3:4") { width = base; height = Math.round(base * 4/3); }
+  else if (aspecto === "1:1") { width = base; height = base; }
+  // "auto" mantiene base x base (el modelo decide)
+
   try {
     const url = "https://api.cloudflare.com/client/v4/accounts/" + CF_ACCOUNT_ID + "/ai/run/@cf/stabilityai/stable-diffusion-xl-base-1.0";
     const resp = await fetch(url, {
       method: "POST",
       headers: { "Authorization": "Bearer " + CF_TOKEN, "Content-Type": "application/json" },
-      body: JSON.stringify({ prompt, num_steps: 20 })
+      body: JSON.stringify({ prompt, num_steps: 20, width, height })
     });
     const contentType = resp.headers.get("content-type") || "";
     if (contentType.includes("application/json")) {
@@ -1031,6 +1052,27 @@ app.post("/suscripcion", async (req, res) => {
         body: JSON.stringify({ plan, ...datos, fecha: new Date().toISOString() })
     });
     res.json({ status: "ok", plan, datos });
+});
+
+
+// ════ BIBLIOTECA DE CREACIONES ════
+app.get("/biblioteca", async (req, res) => {
+  try {
+    const resp = await fetch(SUPABASE_URL + "/rest/v1/creaciones?select=*&order=fecha.desc&limit=50", {
+      headers: {
+        "apikey": SUPABASE_KEY,
+        "Authorization": "Bearer " + SUPABASE_KEY
+      }
+    });
+    if (resp.ok) {
+      const data = await resp.json();
+      res.json({ status: "ok", creaciones: data });
+    } else {
+      res.status(500).json({ error: "Error al obtener biblioteca" });
+    }
+  } catch(e) {
+    res.status(500).json({ error: e.message });
+  }
 });
 
 app.listen(PORT, () => console.log("✅ FUNDORA AGENCY v3.0 en puerto " + PORT + " | Agentes: " + Object.keys(AGENTES).length));

@@ -24,7 +24,10 @@
         #chat-input-area button.purple { background:#8b5cf6; color:#fff; }
         .msg { margin-bottom:10px; padding:8px 12px; border-radius:12px; max-width:85%; }
         .msg.user { background:#2c3e50; color:#ecf0f1; margin-left:auto; text-align:right; }
-        .msg.agent { background:#2a2a2a; color:#bdc3c7; margin-right:auto; text-align:left; border-left:3px solid #3498db; }
+        .msg.agent { background:#2a2a2a; color:#bdc3c7; margin-right:auto; text-align:left; border-left:3px solid #3498db; position:relative; }
+        .msg.agent .copy-btn { position:absolute; top:4px; right:4px; background:#3a3a3a; color:#999; border:none; border-radius:4px; padding:2px 6px; font-size:10px; cursor:pointer; opacity:0; transition:opacity 0.2s; }
+        .msg.agent:hover .copy-btn { opacity:1; }
+        .msg.agent .copy-btn:hover { background:#555; color:#fff; }
     </style>
 </head>
 <body>
@@ -155,6 +158,14 @@
                 }
                 div.innerHTML = '<strong>' + displayName + ':</strong> ' + contenido;
             }
+            // Añadir botón de copiar en mensajes del agente
+            if (role === 'agent') {
+                var copyBtn = document.createElement('button');
+                copyBtn.className = 'copy-btn';
+                copyBtn.textContent = '📋';
+                copyBtn.onclick = function() { copiarTexto(text.replace(/<br>/g, '\n').replace(/<[^>]*>/g, ''), copyBtn); };
+                div.appendChild(copyBtn);
+            }
             messagesDiv.appendChild(div);
             messagesDiv.scrollTop = messagesDiv.scrollHeight;
         }
@@ -191,7 +202,16 @@
             }
         }
 
-        function clearChat() {
+        function copiarTexto(texto, btn) {
+    navigator.clipboard.writeText(texto).then(function() {
+        btn.textContent = '✅';
+        setTimeout(function() { btn.textContent = '📋'; }, 1500);
+    }).catch(function() {
+        btn.textContent = '❌';
+    });
+}
+
+function clearChat() {
   document.getElementById('chat-messages').innerHTML = '<div class="msg agent"><strong>Fundora AI:</strong> Chat limpiado.</div>';
 }
 

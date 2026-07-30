@@ -29,6 +29,11 @@
         }
         
         body { 
+    overflow:hidden;
+    height:100vh;
+    max-height:100vh;
+}
+body { 
             font-family: 'Montserrat', 'Segoe UI', system-ui, sans-serif; 
             background: var(--bg-primary); 
             color: var(--text-primary); 
@@ -70,7 +75,12 @@
             font-family: 'JetBrains Mono', monospace;
         }
         
-        #chat-wrapper { display:flex; flex:1; overflow:hidden; }
+        #chat-wrapper { 
+    display:flex; 
+    flex:1; 
+    overflow:hidden;
+    min-height:0;
+}
         
         #chat-sidebar { 
             width:240px; 
@@ -124,10 +134,12 @@
         #chat-messages { 
             flex:1; 
             overflow-y:auto; 
+            overflow-x:hidden;
             padding:20px; 
-            max-width:800px; 
-            margin:0 auto; 
+            max-width:100%;
             width:100%;
+            word-wrap:break-word;
+            word-break:break-word;
         }
         
         .msg { 
@@ -198,7 +210,12 @@
         #chat-input-area select:focus, #chat-input-area input:focus {
             border-color: var(--accent-blue);
         }
-        #chat-input-area input { flex:1; min-width:120px; }
+        #chat-input-area input { 
+    flex:1; 
+    min-width:120px;
+    max-width:100%;
+    word-wrap:break-word;
+}
         #chat-input-area button { 
             color:#fff; 
             border:none; 
@@ -705,7 +722,42 @@ async function generarImagen() {
             }
         }
 
-        sendBtn.addEventListener('click', sendMessage);
+        // ════ PERSISTENCIA EN LOCALSTORAGE ════
+function guardarChatLocal() {
+    try {
+        var mensajes = document.getElementById('chat-messages').innerHTML;
+        localStorage.setItem('fundora-chat-' + (agentSelect?.value || 'general'), mensajes);
+    } catch(e) {}
+}
+
+function restaurarChatLocal() {
+    try {
+        var mensajes = localStorage.getItem('fundora-chat-' + (agentSelect?.value || 'general'));
+        if (mensajes) {
+            document.getElementById('chat-messages').innerHTML = mensajes;
+        }
+    } catch(e) {}
+}
+
+// Restaurar al cargar
+document.addEventListener('DOMContentLoaded', function() {
+    setTimeout(restaurarChatLocal, 500);
+});
+
+// Guardar después de cada mensaje
+var originalAddMessage = addMessage;
+addMessage = function(text, role) {
+    originalAddMessage(text, role);
+    guardarChatLocal();
+};
+
+// También guardar al cambiar de agente
+agentSelect.addEventListener('change', function() {
+    guardarChatLocal();
+    setTimeout(restaurarChatLocal, 300);
+});
+
+sendBtn.addEventListener('click', sendMessage);
         input.addEventListener('keypress', e => { if (e.key === 'Enter') sendMessage(); });
     </script>
 

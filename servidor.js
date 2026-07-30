@@ -37,10 +37,17 @@ const SAFE_ROOT = path.join(os.homedir(), "fundora-ai");
 
 // Modelos disponibles
 const MODELOS = {
+  // ── TEXTO ──
   potente:  "@cf/meta/llama-3.3-70b-instruct-fp8-fast",
   rapido:   "@cf/meta/llama-3.1-8b-instruct",
   codigo:   "@cf/meta/llama-3.3-70b-instruct-fp8-fast", // fallback, ideal: qwen-coder
   analisis: "@cf/meta/llama-3.3-70b-instruct-fp8-fast",
+  // ── IMAGEN ──
+  imagen:      "@cf/black-forest-labs/flux-1-schnell",              // Principal: mejor calidad, más rápido, ~100k/día
+  imagen_sdxl: "@cf/stabilityai/stable-diffusion-xl-base-1.0",      // Fallback
+  // ── AUDIO ──
+  audio_tts:   "@cf/myshell-ai/melotts",                            // Texto → Voz
+  audio_stt:   "@cf/openai/whisper-large-v3-turbo",                 // Voz → Texto
 };
 
 const GROQ_MODELS = {
@@ -309,6 +316,12 @@ function detectarIntencion(mensaje) {
     return { tipo: "pdf", confianza: "alta" };
   }
   
+  // AUDIO / VOZ (texto → voz)
+  if (/\b(genera|crea|hazme|haz|convierte|convierteme|pon|dame)\b.*\b(audio|voz|narración|narracion|locución|locucion|podcast|voice|mp3)\b/i.test(m) ||
+      /\b(léeme|leeme|nárrame|narrame|dilo en voz|dime en voz|en voz alta|dictame|dícta)\b/i.test(m)) {
+    return { tipo: "audio", confianza: "alta" };
+  }
+
   // CÓDIGO
   if (/\b(programa|desarrolla|escribe|crea|genera|haz)\b.*\b(código|codigo|script|app|aplicación|aplicacion|función|funcion|api|endpoint|bot|automatización|automatizacion)\b/i.test(m) ||
       /\b(en javascript|en python|en node|en react|en typescript)\b/i.test(m)) {
@@ -370,16 +383,33 @@ async function guardarMemoria(agenteId, sessionId, tipo, contenido) {
 //  GENERADORES (usados por el orquestador)
 // ══════════════════════════════════════════════
 async function generarImagen(prompt) {
-  // Optimizar prompt con FUNDORA VISION
+  // Optimizar prompt con FUNDORA VISION (el prompt óptimo para modelos de imagen va en inglés)
   let promptOpt = prompt;
   try {
     promptOpt = await llamarCF(AGENTES.director.modelo, [
-      { role: "system", content: AGENTES.director.system + " Responde SOLO con el prompt optimizado para Stable Diffusion, máximo 200 caracteres." },
+      { role: "system", content: AGENTES.director.system + " Responde SOLO con el prompt optimizado EN INGLÉS para un modelo de difusión, máximo 200 caracteres. Sin explicaciones." },
       { role: "user", content: "Optimiza para imagen de alta calidad: " + prompt }
     ], 200);
   } catch(e) {}
 
-  const url = `https://api.cloudflare.com/client/v4/accounts/${CF_ACCOUNT_ID}/ai/run/@cf/stabilityai/stable-diffusion-xl-base-1.0`;
+  // ── INTENTO 1: FLUX.1 Schnell (mejor calidad, más rápido, ~100k/día) ──
+  try {
+    const url = `https://api.cloudflare.com/client/v4/accounts/${CF_ACCOUNT_ID}/ai/run/${MODELOS.imagen}`;
+    const resp = await fetch(url, {
+      method: "POST",
+      headers: { "Authorization": `Bearer ${CF_TOKEN}`, "Content-Type": "application/json" },
+      body: JSON.stringify({ prompt: promptOpt, steps: 6 }) // FLUX Schnell: máx 8 pasos
+    });
+    const data = await resp.json();
+    if (data.success && data.result?.image) {
+      // FLUX devuelve la imagen como base64 JPEG dentro de result.image
+      return { imagen: "data:image/jpeg;base64," + data.result.image, prompt_usado: promptOpt, modelo: "flux-1-schnell" };
+    }
+    logger.warn("FLUX no devolvió imagen, usando SDXL fallback");
+  } catch(e) { logger.warn("FLUX falló: " + e.message); }
+
+  // ── INTENTO 2: SDXL (fallback confiable) ──
+  const url = `https://api.cloudflare.com/client/v4/accounts/${CF_ACCOUNT_ID}/ai/run/${MODELOS.imagen_sdxl}`;
   const resp = await fetch(url, {
     method: "POST",
     headers: { "Authorization": `Bearer ${CF_TOKEN}`, "Content-Type": "application/json" },
@@ -390,48 +420,83 @@ async function generarImagen(prompt) {
   if (contentType.includes("application/json")) {
     const data = await resp.json();
     if (!data.success) throw new Error(JSON.stringify(data.errors));
-    base64 = Buffer.from(data.result.image, "base64").toString("base64");
+    base64 = data.result.image;
   } else {
     const buffer = await resp.arrayBuffer();
     base64 = Buffer.from(buffer).toString("base64");
   }
-  return { imagen: "data:image/png;base64," + base64, prompt_usado: promptOpt };
+  return { imagen: "data:image/png;base64," + base64, prompt_usado: promptOpt, modelo: "sdxl-fallback" };
 }
 
-async function generarVideo(prompt, frames = 5) {
+// ── AUDIO: Texto → Voz (MeloTTS) ──
+async function generarAudio(texto, lang = "es") {
+  const url = `https://api.cloudflare.com/client/v4/accounts/${CF_ACCOUNT_ID}/ai/run/${MODELOS.audio_tts}`;
+  const resp = await fetch(url, {
+    method: "POST",
+    headers: { "Authorization": `Bearer ${CF_TOKEN}`, "Content-Type": "application/json" },
+    body: JSON.stringify({ prompt: texto, lang })
+  });
+  const data = await resp.json();
+  if (!data.success) throw new Error(JSON.stringify(data.errors));
+  // MeloTTS devuelve result.audio como base64 mp3
+  return { audio: "data:audio/mpeg;base64," + data.result.audio, texto };
+}
+
+// ── AUDIO: Voz → Texto (Whisper) ──
+async function transcribirAudio(audioBuffer) {
+  const url = `https://api.cloudflare.com/client/v4/accounts/${CF_ACCOUNT_ID}/ai/run/${MODELOS.audio_stt}`;
+  const resp = await fetch(url, {
+    method: "POST",
+    headers: { "Authorization": `Bearer ${CF_TOKEN}`, "Content-Type": "application/json" },
+    body: JSON.stringify({ audio: Array.from(new Uint8Array(audioBuffer)) })
+  });
+  const data = await resp.json();
+  if (!data.success) throw new Error(JSON.stringify(data.errors));
+  return { texto: data.result.text, palabras: data.result.word_count };
+}
+
+async function generarVideo(prompt, frames = 6) {
+  // Optimizar el prompt base una sola vez (coherencia entre frames)
+  let promptBase = prompt;
+  try {
+    promptBase = await llamarCF(AGENTES.director.modelo, [
+      { role: "system", content: AGENTES.director.system + " Responde SOLO con un prompt EN INGLÉS para una escena cinematográfica, máximo 150 caracteres. Sin explicaciones." },
+      { role: "user", content: "Escena para video: " + prompt }
+    ], 150);
+  } catch(e) {}
+
   const imagenes = [];
+  // FLUX Schnell es rápido → generamos más frames para movimiento más fluido
   for (let i = 0; i < frames; i++) {
-    const fp = `${prompt}, frame ${i+1} of ${frames}, cinematic, consistent style, smooth animation`;
-    const url = `https://api.cloudflare.com/client/v4/accounts/${CF_ACCOUNT_ID}/ai/run/@cf/stabilityai/stable-diffusion-xl-base-1.0`;
-    const resp = await fetch(url, {
-      method: "POST",
-      headers: { "Authorization": `Bearer ${CF_TOKEN}`, "Content-Type": "application/json" },
-      body: JSON.stringify({ prompt: fp, num_steps: 15 })
-    });
-    let base64;
-    const ct = resp.headers.get("content-type") || "";
-    if (ct.includes("application/json")) {
+    const progreso = (i / (frames - 1)).toFixed(2); // 0.00 → 1.00 para sugerir avance temporal
+    const fp = `${promptBase}, cinematic film still, frame ${i+1}/${frames}, motion progress ${progreso}, consistent characters and lighting, smooth camera movement`;
+    try {
+      const url = `https://api.cloudflare.com/client/v4/accounts/${CF_ACCOUNT_ID}/ai/run/${MODELOS.imagen}`;
+      const resp = await fetch(url, {
+        method: "POST",
+        headers: { "Authorization": `Bearer ${CF_TOKEN}`, "Content-Type": "application/json" },
+        body: JSON.stringify({ prompt: fp, steps: 6 })
+      });
       const d = await resp.json();
-      if (d.success) base64 = Buffer.from(d.result.image, "base64").toString("base64");
-    } else {
-      const buf = await resp.arrayBuffer();
-      base64 = Buffer.from(buf).toString("base64");
-    }
-    if (base64) {
-      imagenes.push(base64);
-      fs.writeFileSync(`/tmp/vframe_${i}.png`, Buffer.from(base64, "base64"));
-    }
+      if (d.success && d.result?.image) {
+        imagenes.push(d.result.image);
+        fs.writeFileSync(`/tmp/vframe_${i}.jpg`, Buffer.from(d.result.image, "base64"));
+      }
+    } catch(e) { logger.warn(`Frame ${i} falló: ${e.message}`); }
   }
+
   if (imagenes.length >= 2) {
     try {
-      execSync("ffmpeg -y -framerate 1 -i /tmp/vframe_%d.png -c:v libx264 -pix_fmt yuv420p /tmp/vout.mp4 2>/dev/null");
+      // framerate 2 + libx264 → video más fluido que el anterior (1 fps)
+      execSync(`ffmpeg -y -framerate 2 -i /tmp/vframe_%d.jpg -c:v libx264 -pix_fmt yuv420p -vf "scale=1024:1024:force_original_aspect_ratio=decrease,pad=1024:1024:(ow-iw)/2:(oh-ih)/2" /tmp/vout.mp4 2>/dev/null`);
       const videoBuf = fs.readFileSync("/tmp/vout.mp4");
       const videoB64 = videoBuf.toString("base64");
-      for (let i = 0; i < frames; i++) { try { fs.unlinkSync(`/tmp/vframe_${i}.png`); } catch(e) {} }
+      for (let i = 0; i < frames; i++) { try { fs.unlinkSync(`/tmp/vframe_${i}.jpg`); } catch(e) {} }
       try { fs.unlinkSync("/tmp/vout.mp4"); } catch(e) {}
-      return { video: "data:video/mp4;base64," + videoB64, frames: imagenes.length };
+      return { video: "data:video/mp4;base64," + videoB64, frames: imagenes.length, modelo: "flux-frames+ffmpeg" };
     } catch(e) {
-      return { imagenes: imagenes.map(img => "data:image/png;base64," + img), frames: imagenes.length, nota: "Video en frames (ffmpeg no disponible)" };
+      logger.warn("ffmpeg falló: " + e.message);
+      return { imagenes: imagenes.map(img => "data:image/jpeg;base64," + img), frames: imagenes.length, nota: "Frames individuales (ffmpeg no disponible)" };
     }
   }
   throw new Error("No se pudieron generar suficientes frames");
@@ -509,10 +574,15 @@ app.get("/health", (req, res) => {
   res.json({
     status: "online",
     nombre: "FUNDORA AGENCY AI",
-    version: "4.0",
+    version: "4.1",
     agentes: Object.keys(AGENTES).length,
     uptime_horas: (process.uptime() / 3600).toFixed(2),
-    capacidades: ["chat", "imagen", "video", "pdf", "codigo", "terminal"],
+    capacidades: ["chat", "imagen", "video", "audio", "pdf", "codigo", "terminal"],
+    motores: {
+      imagen: "FLUX.1 Schnell (fallback SDXL)",
+      audio: "MeloTTS + Whisper v3 Turbo",
+      video: "FLUX frames + ffmpeg"
+    },
     orquestador: "activo"
   });
 });
@@ -576,6 +646,14 @@ app.post("/chat", async (req, res) => {
           resultado = { accion: "pdf", ...r };
           textoRespuesta = `✅ PDF generado: "${titulo}.pdf"`;
           
+        } else if (intencion.tipo === "audio") {
+          // Extraer el texto a narrar (quitar la orden inicial)
+          let textoNarrar = mensaje.replace(/^(genera|crea|hazme|haz|convierte(me)?|léeme|leeme|nárrame|narrame|dame|pon)\s+(un\s+|el\s+|la\s+)?(audio|voz|narración|narracion|podcast|mp3)\s*(de|que diga|con el texto|:)?/i, "").trim();
+          if (!textoNarrar || textoNarrar.length < 3) textoNarrar = mensaje;
+          const r = await generarAudio(textoNarrar, "es");
+          resultado = { accion: "audio", ...r };
+          textoRespuesta = `✅ Audio generado (voz en español)`;
+
         } else if (intencion.tipo === "codigo") {
           const codigoResp = await llamarCF(AGENTES.programador.modelo, [
             { role: "system", content: AGENTES.programador.system },
@@ -709,6 +787,25 @@ app.post("/generar/pdf", async (req, res) => {
   if (!contenido && !imagen) return res.status(400).json({ error: "Falta contenido o imagen" });
   try {
     const r = await generarPDF(titulo, contenido);
+    res.json({ status: "ok", ...r });
+  } catch(e) { res.status(500).json({ error: e.message }); }
+});
+
+// ── AUDIO: Texto → Voz (TTS) ──
+app.post("/generar/audio", async (req, res) => {
+  const { texto, idioma = "es" } = req.body;
+  if (!texto) return res.status(400).json({ error: "Falta texto" });
+  try {
+    const r = await generarAudio(texto, idioma);
+    res.json({ status: "ok", ...r });
+  } catch(e) { res.status(500).json({ error: e.message }); }
+});
+
+// ── AUDIO: Voz → Texto (Whisper) ──
+app.post("/transcribir", upload.single("audio"), async (req, res) => {
+  if (!req.file) return res.status(400).json({ error: "Falta archivo de audio" });
+  try {
+    const r = await transcribirAudio(req.file.buffer);
     res.json({ status: "ok", ...r });
   } catch(e) { res.status(500).json({ error: e.message }); }
 });
@@ -946,24 +1043,36 @@ app.get("/stats", (req, res) => {
     modelos: {
       potente: MODELOS.potente,
       rapido: MODELOS.rapido,
-      codigo: MODELOS.codigo
+      codigo: MODELOS.codigo,
+      imagen: MODELOS.imagen,
+      audio_tts: MODELOS.audio_tts,
+      audio_stt: MODELOS.audio_stt
     }
   });
 });
 
 app.get("/skills", (req, res) => {
   res.json({
-    sistema: "FUNDORA AGENCY AI v4.0",
+    sistema: "FUNDORA AGENCY AI v4.1",
     agentes: Object.keys(AGENTES).length,
-    orquestador: "Detección automática de intenciones — imagen, video, PDF, código",
+    orquestador: "Detección automática de intenciones — imagen, video, audio, PDF, código",
+    motores_gratuitos: {
+      texto: "Cloudflare Llama 3.3 70B + Groq",
+      imagen: "FLUX.1 Schnell (~100k/día) con fallback SDXL",
+      audio_tts: "MeloTTS (texto → voz)",
+      audio_stt: "Whisper v3 Turbo (voz → texto)",
+      video: "FLUX frames + ffmpeg",
+      pdf: "pdfkit local"
+    },
     endpoints: [
       "GET /health", "GET /agentes", "GET /stats", "GET /skills",
-      "POST /chat (orquestador — detecta imagen/video/pdf/codigo automáticamente)",
+      "POST /chat (orquestador — detecta imagen/video/audio/pdf/codigo automáticamente)",
       "POST /consulta", "POST /verificar", "POST /validar", "POST /feedback",
       "GET /memoria/:agenteId", "POST /memoria/buscar",
       "POST /agentes/crear", "POST /agentes/:id/clonar", "POST /agentes/:id/conocimiento",
       "POST /generar/imagen", "POST /generar/imagen-ilimitado",
       "POST /generar/img2img", "POST /generar/video", "POST /generar/video-cloudflare",
+      "POST /generar/audio (TTS)", "POST /transcribir (Whisper)",
       "POST /generar/pdf", "POST /upload", "GET /biblioteca",
       "POST /groq/chat", "POST /ejecutar", "POST /simular", "POST /sql",
       "POST /enviar/whatsapp", "POST /auth/login",
@@ -1001,8 +1110,8 @@ app.get("/dashboard", (req, res) => res.sendFile(path.join(__dirname, "public", 
 
 // ══════════════════════════════════════════════
 app.listen(PORT, () => {
-  console.log(`✅ FUNDORA AGENCY AI v4.0 en puerto ${PORT}`);
+  console.log(`✅ FUNDORA AGENCY AI v4.1 en puerto ${PORT}`);
   console.log(`🤖 ${Object.keys(AGENTES).length} agentes activos`);
   console.log(`⚡ Orquestador de intenciones: ACTIVO`);
-  console.log(`🎨 Imagen | 🎬 Video | 📄 PDF | ⌨️ Código — sin botones, solo pedirlo`);
+  console.log(`🎨 FLUX.1 | 🎬 Video | 🔊 Audio | 📄 PDF | ⌨️ Código — sin botones, solo pedirlo`);
 });

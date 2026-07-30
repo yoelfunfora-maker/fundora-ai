@@ -22,7 +22,8 @@ const logger = winston.createLogger({
 
 const app = express();
 const multer = require("multer");
-const sharp = require("sharp");
+let sharp = null;
+try { sharp = require("sharp"); } catch(e) { console.warn('sharp no disponible, upscaling deshabilitado.'); }
 const PDFDocument = require("pdfkit");
 const upload = multer({ storage: multer.memoryStorage() });
 const expressWs = require("express-ws")(app);
@@ -1024,6 +1025,71 @@ app.post("/generar/video-imagen", async (req, res) => {
       res.json({ status: "error", mensaje: "No se pudieron generar los frames." });
     }
   } catch(e) { res.status(500).json({ error: e.message }); }
+});
+
+
+// ════ GENERAR VIDEO CON CLOUDFLARE (SECUENCIA DE FRAMES) ════
+app.post("/generar/video-cloudflare", async (req, res) => {
+  const { prompt, frames = 5 } = req.body;
+  if (!prompt) return res.status(400).json({ error: "Falta prompt" });
+  
+  const imagenes = [];
+  try {
+    for (let i = 0; i < frames; i++) {
+      const framePrompt = prompt + ", frame " + (i+1) + " of " + frames + ", smooth animation, consistent style, cinematic";
+      const url = "https://api.cloudflare.com/client/v4/accounts/" + CF_ACCOUNT_ID + "/ai/run/@cf/stabilityai/stable-diffusion-xl-base-1.0";
+      const resp = await fetch(url, {
+        method: "POST",
+        headers: { "Authorization": "Bearer " + CF_TOKEN, "Content-Type": "application/json" },
+        body: JSON.stringify({ prompt: framePrompt, num_steps: 15 })
+      });
+      
+      let base64;
+      const contentType = resp.headers.get("content-type") || "";
+      if (contentType.includes("application/json")) {
+        const data = await resp.json();
+        if (data.success) {
+          base64 = Buffer.from(data.result.image, 'base64').toString('base64');
+        } else {
+          continue;
+        }
+      } else {
+        const buffer = await resp.arrayBuffer();
+        base64 = Buffer.from(buffer).toString('base64');
+      }
+      
+      if (base64) {
+        imagenes.push(base64);
+        // Guardar cada frame temporalmente
+        require('fs').writeFileSync("/tmp/frame_" + i + ".png", Buffer.from(base64, 'base64'));
+      }
+    }
+    
+    if (imagenes.length >= 2) {
+      // Usar ffmpeg para crear video MP4 desde los frames
+      const { execSync } = require("child_process");
+      try {
+        execSync("ffmpeg -y -framerate 1 -i /tmp/frame_%d.png -c:v libx264 -pix_fmt yuv420p /tmp/output.mp4 2>/dev/null");
+        const videoBuffer = require('fs').readFileSync("/tmp/output.mp4");
+        const videoBase64 = videoBuffer.toString('base64');
+        
+        // Limpiar temporales
+        for (let i = 0; i < frames; i++) {
+          try { require('fs').unlinkSync("/tmp/frame_" + i + ".png"); } catch(e) {}
+        }
+        try { require('fs').unlinkSync("/tmp/output.mp4"); } catch(e) {}
+        
+        return res.json({ status: "ok", video: "data:video/mp4;base64," + videoBase64, frames: imagenes.length });
+      } catch(ffmpegError) {
+        // Si ffmpeg falla, devolver las imágenes como galería
+        return res.json({ status: "ok", imagenes: imagenes.map(img => "data:image/png;base64," + img), mensaje: "Video no disponible (ffmpeg no instalado). Se muestran los frames individuales." });
+      }
+    } else {
+      res.json({ status: "error", mensaje: "No se pudieron generar suficientes frames." });
+    }
+  } catch(e) {
+    res.status(500).json({ error: e.message });
+  }
 });
 
 app.listen(PORT, () => console.log("✅ FUNDORA AGENCY v3.0 en puerto " + PORT + " | Agentes: " + Object.keys(AGENTES).length));

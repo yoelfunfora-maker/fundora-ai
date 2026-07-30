@@ -129,11 +129,12 @@ body {
             display:flex; 
             flex-direction:column;
             background: var(--bg-primary);
+            min-height:0;
+            overflow:hidden;
         }
-        
         #chat-messages { 
             flex:1; 
-            overflow-y:auto; 
+            overflow-y:auto;
             overflow-x:hidden;
             padding:20px; 
             max-width:100%;
@@ -141,6 +142,18 @@ body {
             word-wrap:break-word;
             word-break:break-word;
         }
+        #chat-input-area { 
+            display:flex; 
+            padding:16px 20px; 
+            background: var(--glass-bg);
+            border-top:1px solid var(--glass-border); 
+            flex-wrap:wrap; 
+            gap:8px;
+            backdrop-filter: blur(10px);
+            flex-shrink:0;
+        }
+        
+        
         
         .msg { 
             margin-bottom:12px; 
@@ -187,15 +200,7 @@ body {
         .msg.agent:hover .copy-btn { opacity:1; }
         .msg.agent .copy-btn:hover { background: var(--border); color: var(--text-primary); }
         
-        #chat-input-area { 
-            display:flex; 
-            padding:16px 20px; 
-            background: var(--glass-bg);
-            border-top:1px solid var(--glass-border); 
-            flex-wrap:wrap; 
-            gap:8px;
-            backdrop-filter: blur(10px);
-        }
+        
         #chat-input-area select, #chat-input-area input { 
             background: var(--bg-tertiary); 
             color: var(--text-primary); 
@@ -375,7 +380,9 @@ body {
                 typingIndicator.className = 'msg agent';
                 typingIndicator.innerHTML = '<strong>' + (agentNames[agentSelect.value] || agentSelect.value) + ':</strong> <em>escribiendo...</em>';
                 messagesDiv.appendChild(typingIndicator);
-                messagesDiv.scrollTop = messagesDiv.scrollHeight;
+                requestAnimationFrame(function() {
+        messagesDiv.scrollTop = messagesDiv.scrollHeight;
+    });
             }
         }
 
@@ -387,6 +394,12 @@ body {
         }
 
         function addMessage(text, role) {
+    var messagesDiv = document.getElementById('chat-messages');
+    var inputArea = document.getElementById('chat-input-area');
+    // Asegurar que el input siempre sea visible
+    if (inputArea) {
+        inputArea.style.display = 'flex';
+    }
             hideTyping();
             const div = document.createElement('div');
             div.className = 'msg ' + (role === 'user' ? 'user' : 'agent');
@@ -415,7 +428,9 @@ body {
                 div.appendChild(copyBtn);
             }
             messagesDiv.appendChild(div);
-            messagesDiv.scrollTop = messagesDiv.scrollHeight;
+            requestAnimationFrame(function() {
+        messagesDiv.scrollTop = messagesDiv.scrollHeight;
+    });
         }
 
         async function sendMessage() {

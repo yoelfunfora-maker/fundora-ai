@@ -6,39 +6,235 @@
     <title>Fundora Agency AI · Dashboard</title>
     <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/xterm@5.3.0/css/xterm.min.css" />
     <style>
+        @import url('https://fonts.googleapis.com/css2?family=Montserrat:wght@400;500;600;700&display=swap');
+        @import url('https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500&display=swap');
+        
         * { margin:0; padding:0; box-sizing:border-box; }
-        body { font-family: 'Inter', 'Segoe UI', system-ui, sans-serif; background:#1a1a1a; color:#e0e0e0; display:flex; height:100vh; }
-        #panel-izq { width:55%; display:flex; flex-direction:column; border-right:2px solid #2a2a2a; }
-        #panel-der { width:45%; display:flex; flex-direction:column; }
-        .header { padding:12px 16px; background:#212121; border-bottom:1px solid #2a2a2a; font-weight:600; font-size:14px; letter-spacing:0.3px; color:#f0f0f0; }
-        #terminal-container { flex:1; padding:4px; background:#121212; }
-        #chat-container { flex:1; display:flex; flex-direction:column; }
-        #chat-messages { flex:1; overflow-y:auto; padding:12px; background:#1a1a1a; }
-        #chat-input-area { display:flex; padding:10px; background:#212121; border-top:1px solid #2a2a2a; flex-wrap:wrap; gap:6px; }
-        #chat-input-area select, #chat-input-area input { background:#2a2a2a; color:#e0e0e0; border:1px solid #3a3a3a; border-radius:8px; padding:6px 10px; outline:none; font-size:13px; }
-        #chat-input-area input { flex:1; min-width:150px; }
-        #chat-input-area button { background:#3498db; color:#fff; border:none; border-radius:8px; padding:6px 14px; font-weight:bold; cursor:pointer; font-size:12px; transition: all 0.2s; }
-        #chat-input-area button:hover { background:#2980b9; transform:translateY(-1px); }
-        #chat-input-area button.gold { background:#d4af37; color:#000; }
-        #chat-input-area button.red { background:#e74c3c; color:#fff; }
-        #chat-input-area button.purple { background:#8b5cf6; color:#fff; }
-        #chat-messages { max-width:800px; margin:0 auto; width:100%; }
-        .msg { margin-bottom:10px; padding:8px 12px; border-radius:12px; max-width:85%; word-wrap:break-word; }
-        .msg.user { background:#2c3e50; color:#ecf0f1; margin-left:auto; text-align:right; }
-        .msg.agent { background:#2a2a2a; color:#bdc3c7; margin-right:auto; text-align:left; border-left:3px solid #3498db; position:relative; }
-        /* Sidebar de historial */
+        
+        :root {
+          --bg-primary: #0d1117;
+          --bg-secondary: #161b22;
+          --bg-tertiary: #21262d;
+          --bg-card: #1c2128;
+          --border: #30363d;
+          --text-primary: #e6edf3;
+          --text-secondary: #8b949e;
+          --accent-gold: #d4af37;
+          --accent-blue: #58a6ff;
+          --accent-green: #3fb950;
+          --accent-red: #f85149;
+          --accent-purple: #a371f7;
+          --glass-bg: rgba(22, 27, 34, 0.8);
+          --glass-border: rgba(48, 54, 61, 0.6);
+        }
+        
+        body { 
+            font-family: 'Montserrat', 'Segoe UI', system-ui, sans-serif; 
+            background: var(--bg-primary); 
+            color: var(--text-primary); 
+            display:flex; 
+            height:100vh;
+            overflow:hidden;
+        }
+        
+        #panel-izq { 
+            width:55%; 
+            display:flex; 
+            flex-direction:column; 
+            border-right:1px solid var(--border);
+            background: var(--bg-secondary);
+        }
+        #panel-der { 
+            width:45%; 
+            display:flex; 
+            flex-direction:column; 
+            background: var(--bg-primary);
+        }
+        
+        .header { 
+            padding:14px 20px; 
+            background: var(--bg-secondary); 
+            border-bottom:1px solid var(--border); 
+            font-weight:600; 
+            font-size:13px; 
+            letter-spacing:0.5px; 
+            color: var(--text-primary);
+            text-transform: uppercase;
+            backdrop-filter: blur(10px);
+        }
+        
+        #terminal-container { 
+            flex:1; 
+            padding:8px; 
+            background: #0d1117;
+            font-family: 'JetBrains Mono', monospace;
+        }
+        
         #chat-wrapper { display:flex; flex:1; overflow:hidden; }
-        #chat-sidebar { width:220px; background:#181818; border-right:1px solid #2a2a2a; overflow-y:auto; display:none; flex-shrink:0; }
+        
+        #chat-sidebar { 
+            width:240px; 
+            background: var(--bg-secondary); 
+            border-right:1px solid var(--border); 
+            overflow-y:auto; 
+            display:none; 
+            flex-shrink:0;
+            backdrop-filter: blur(10px);
+        }
         #chat-sidebar.open { display:block; }
-        #chat-sidebar .sidebar-header { padding:10px; font-weight:bold; border-bottom:1px solid #2a2a2a; display:flex; justify-content:space-between; align-items:center; }
-        #chat-sidebar .sidebar-item { padding:8px 10px; cursor:pointer; border-bottom:1px solid #222; display:flex; justify-content:space-between; align-items:center; }
-        #chat-sidebar .sidebar-item:hover { background:#252525; }
-        #chat-sidebar .sidebar-item .agent-name { flex:1; }
-        #chat-sidebar .sidebar-item .delete-btn { background:transparent; color:#e74c3c; border:none; cursor:pointer; font-size:12px; padding:2px 6px; }
-        #toggle-sidebar { background:#374151; color:#fff; border:none; border-radius:6px; padding:4px 8px; font-size:11px; cursor:pointer; }
-        .msg.agent .copy-btn { position:absolute; top:4px; right:4px; background:#3a3a3a; color:#999; border:none; border-radius:4px; padding:2px 6px; font-size:10px; cursor:pointer; opacity:0; transition:opacity 0.2s; }
+        #chat-sidebar .sidebar-header { 
+            padding:14px; 
+            font-weight:600; 
+            border-bottom:1px solid var(--border); 
+            display:flex; 
+            justify-content:space-between; 
+            align-items:center;
+            color: var(--text-primary);
+        }
+        #chat-sidebar .sidebar-item { 
+            padding:10px 14px; 
+            cursor:pointer; 
+            border-bottom:1px solid var(--border); 
+            display:flex; 
+            justify-content:space-between; 
+            align-items:center;
+            transition: background 0.2s;
+        }
+        #chat-sidebar .sidebar-item:hover { background: var(--bg-tertiary); }
+        #chat-sidebar .sidebar-item .agent-name { flex:1; font-size:13px; color: var(--text-secondary); }
+        #chat-sidebar .sidebar-item .delete-btn { 
+            background:transparent; 
+            color: var(--accent-red); 
+            border:none; 
+            cursor:pointer; 
+            font-size:12px; 
+            padding:2px 6px;
+            opacity:0.6;
+            transition: opacity 0.2s;
+        }
+        #chat-sidebar .sidebar-item:hover .delete-btn { opacity:1; }
+        
+        #chat-container { 
+            flex:1; 
+            display:flex; 
+            flex-direction:column;
+            background: var(--bg-primary);
+        }
+        
+        #chat-messages { 
+            flex:1; 
+            overflow-y:auto; 
+            padding:20px; 
+            max-width:800px; 
+            margin:0 auto; 
+            width:100%;
+        }
+        
+        .msg { 
+            margin-bottom:12px; 
+            padding:12px 16px; 
+            border-radius:16px; 
+            max-width:80%; 
+            word-wrap:break-word;
+            position:relative;
+            font-size:13px;
+            line-height:1.5;
+            backdrop-filter: blur(5px);
+        }
+        .msg.user { 
+            background: var(--glass-bg);
+            border:1px solid var(--accent-gold);
+            color: var(--text-primary); 
+            margin-left:auto; 
+            text-align:right;
+            border-bottom-right-radius:4px;
+        }
+        .msg.agent { 
+            background: var(--glass-bg);
+            border:1px solid var(--border);
+            color: var(--text-secondary); 
+            margin-right:auto; 
+            text-align:left; 
+            border-left:3px solid var(--accent-blue);
+            border-bottom-left-radius:4px;
+        }
+        .msg.agent .copy-btn { 
+            position:absolute; 
+            top:6px; 
+            right:6px; 
+            background: var(--bg-tertiary); 
+            color: var(--text-secondary); 
+            border:none; 
+            border-radius:6px; 
+            padding:2px 8px; 
+            font-size:10px; 
+            cursor:pointer; 
+            opacity:0; 
+            transition:opacity 0.2s; 
+        }
         .msg.agent:hover .copy-btn { opacity:1; }
-        .msg.agent .copy-btn:hover { background:#555; color:#fff; }
+        .msg.agent .copy-btn:hover { background: var(--border); color: var(--text-primary); }
+        
+        #chat-input-area { 
+            display:flex; 
+            padding:16px 20px; 
+            background: var(--glass-bg);
+            border-top:1px solid var(--glass-border); 
+            flex-wrap:wrap; 
+            gap:8px;
+            backdrop-filter: blur(10px);
+        }
+        #chat-input-area select, #chat-input-area input { 
+            background: var(--bg-tertiary); 
+            color: var(--text-primary); 
+            border:1px solid var(--border); 
+            border-radius:10px; 
+            padding:8px 14px; 
+            outline:none; 
+            font-size:13px;
+            font-family: 'Montserrat', sans-serif;
+            transition: border-color 0.2s;
+        }
+        #chat-input-area select:focus, #chat-input-area input:focus {
+            border-color: var(--accent-blue);
+        }
+        #chat-input-area input { flex:1; min-width:120px; }
+        #chat-input-area button { 
+            color:#fff; 
+            border:none; 
+            border-radius:10px; 
+            padding:8px 16px; 
+            font-weight:600; 
+            cursor:pointer; 
+            font-size:12px; 
+            transition: all 0.2s; 
+            font-family: 'Montserrat', sans-serif;
+            text-transform: uppercase;
+            letter-spacing:0.5px;
+        }
+        #chat-input-area button:hover { transform:translateY(-1px); }
+        .btn-gold { background: var(--accent-gold); color:#000; }
+        .btn-gold:hover { background: #c19b2e; }
+        .btn-blue { background: var(--accent-blue); color:#000; }
+        .btn-blue:hover { background: #4a8ed6; }
+        .btn-purple { background: var(--accent-purple); color:#fff; }
+        .btn-purple:hover { background: #8b5cf6; }
+        .btn-red { background: var(--accent-red); color:#fff; }
+        .btn-red:hover { background: #d63e33; }
+        .btn-green { background: var(--accent-green); color:#000; }
+        .btn-green:hover { background: #2ea043; }
+        
+        #toggle-sidebar { 
+            background: var(--bg-tertiary); 
+            color: var(--text-secondary); 
+            border:1px solid var(--border); 
+            border-radius:8px; 
+            padding:4px 10px; 
+            font-size:11px; 
+            cursor:pointer;
+            transition: all 0.2s;
+        }
+        #toggle-sidebar:hover { background: var(--border); color: var(--text-primary); }
     </style>
 </head>
 <body>
@@ -50,9 +246,9 @@
         <div class="header" style="display:flex;justify-content:space-between;align-items:center;">
   <span>🤖 Chat con Agentes</span>
   <div style="display:flex;gap:6px;">
-    <button onclick="clearChat()" style="background:#374151;color:#fff;border:none;border-radius:6px;padding:4px 8px;font-size:11px;cursor:pointer;">🗑️ Limpiar</button>
-    <button onclick="downloadChat()" style="background:#374151;color:#fff;border:none;border-radius:6px;padding:4px 8px;font-size:11px;cursor:pointer;">📥 Descargar</button>
-    <button onclick="loadHistory()" style="background:#374151;color:#fff;border:none;border-radius:6px;padding:4px 8px;font-size:11px;cursor:pointer;">📜 Historial</button>
+    <button onclick="clearChat()" class="btn-blue" style="border:none;border-radius:6px;padding:4px 8px;font-size:11px;cursor:pointer;">🗑️ Limpiar</button>
+    <button onclick="downloadChat()" class="btn-blue" style="border:none;border-radius:6px;padding:4px 8px;font-size:11px;cursor:pointer;">📥 Descargar</button>
+    <button onclick="loadHistory()" class="btn-blue" style="border:none;border-radius:6px;padding:4px 8px;font-size:11px;cursor:pointer;">📜 Historial</button>
   </div>
 </div>
         <div id="chat-container">
@@ -60,9 +256,9 @@
                 <div class="msg agent"><strong>Fundora AI:</strong> Dashboard conectado. Selecciona un agente y escribe tu mensaje.</div>
             </div>
             <div id="chat-input-area" style="flex-wrap:wrap;">
-                <button onclick="generarImagen()" style="background:#d4af37;color:#000;border:none;border-radius:8px;padding:6px 12px;font-weight:bold;cursor:pointer;margin-right:8px;">🖼️ Imagen</button>
-                <button onclick="generarVideo()" style="background:#8b5cf6;color:#fff;border:none;border-radius:8px;padding:6px 12px;font-weight:bold;cursor:pointer;margin-right:8px;">🎬 Video</button>
-                <button onclick="generarPDF()" style="background:#ef4444;color:#fff;border:none;border-radius:8px;padding:6px 12px;font-weight:bold;cursor:pointer;margin-right:8px;">📄 PDF</button>
+                <button onclick="generarImagen()" class="btn-gold" style="border:none;border-radius:8px;padding:6px 12px;font-weight:bold;cursor:pointer;margin-right:8px;">🖼️ Imagen</button>
+                <button onclick="generarVideo()" class="btn-purple" style="border:none;border-radius:8px;padding:6px 12px;font-weight:bold;cursor:pointer;margin-right:8px;">🎬 Video</button>
+                <button onclick="generarPDF()" class="btn-red" style="border:none;border-radius:8px;padding:6px 12px;font-weight:bold;cursor:pointer;margin-right:8px;">📄 PDF</button>
                 <select id="agente-select">
                     <option value="general">General</option>
                     <option value="ceo">CEO</option>

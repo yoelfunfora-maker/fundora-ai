@@ -991,4 +991,39 @@ app.post("/generar/pdf", async (req, res) => {
   }
 });
 
+
+app.post("/generar/video-imagen", async (req, res) => {
+  const { prompt, frames = 3 } = req.body;
+  if (!prompt) return res.status(400).json({ error: "Falta prompt" });
+  const imagenes = [];
+  try {
+    for (let i = 0; i < frames; i++) {
+      const framePrompt = prompt + ", frame " + (i+1) + " of " + frames + ", cinematic sequence, consistent style";
+      const url = "https://api.cloudflare.com/client/v4/accounts/" + CF_ACCOUNT_ID + "/ai/run/@cf/stabilityai/stable-diffusion-xl-base-1.0";
+      const resp = await fetch(url, {
+        method: "POST",
+        headers: { "Authorization": "Bearer " + CF_TOKEN, "Content-Type": "application/json" },
+        body: JSON.stringify({ prompt: framePrompt, num_steps: 15 })
+      });
+      const contentType = resp.headers.get("content-type") || "";
+      if (contentType.includes("application/json")) {
+        const data = await resp.json();
+        if (data.success) {
+          const base64 = Buffer.from(data.result.image, 'base64').toString('base64');
+          imagenes.push("data:image/png;base64," + base64);
+        }
+      } else {
+        const buffer = await resp.arrayBuffer();
+        const base64 = Buffer.from(buffer).toString('base64');
+        imagenes.push("data:image/png;base64," + base64);
+      }
+    }
+    if (imagenes.length > 0) {
+      res.json({ status: "ok", imagenes, mensaje: "Secuencia de frames generada (el video real no está disponible temporalmente)." });
+    } else {
+      res.json({ status: "error", mensaje: "No se pudieron generar los frames." });
+    }
+  } catch(e) { res.status(500).json({ error: e.message }); }
+});
+
 app.listen(PORT, () => console.log("✅ FUNDORA AGENCY v3.0 en puerto " + PORT + " | Agentes: " + Object.keys(AGENTES).length));

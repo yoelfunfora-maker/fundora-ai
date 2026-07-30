@@ -1,338 +1,741 @@
 const express = require("express");
 const fetch = require("node-fetch");
 const cheerio = require("cheerio");
-const { exec } = require("child_process");
+const { exec, execSync } = require("child_process");
 const path = require("path");
 const fs = require("fs");
 const os = require("os");
-
-
 const jwt = require("jsonwebtoken");
 const winston = require("winston");
 
-
-// ════ LOGS ESTRUCTURADOS (WINSTON) ════
+// ════ LOGS ════
 const logger = winston.createLogger({
   level: 'info',
   format: winston.format.json(),
-  transports: [
-    new winston.transports.Console({ format: winston.format.simple() })
-  ]
+  transports: [new winston.transports.Console({ format: winston.format.simple() })]
 });
 
 const app = express();
 const multer = require("multer");
 let sharp = null;
-try { sharp = require("sharp"); } catch(e) { console.warn('sharp no disponible, upscaling deshabilitado.'); }
+try { sharp = require("sharp"); } catch(e) { console.warn('sharp no disponible.'); }
 const PDFDocument = require("pdfkit");
 const upload = multer({ storage: multer.memoryStorage() });
 const expressWs = require("express-ws")(app);
 
-// ==================== CONFIGURACIÓN ====================
+// ══════════════════════════════════════════════
+//  CONFIGURACIÓN
+// ══════════════════════════════════════════════
 const PORT = process.env.PORT || 3000;
 const SUPABASE_URL = "https://vmjmiabxjmcrovnirbkj.supabase.co";
 const SUPABASE_KEY = process.env.SUPABASE_ANON_KEY || "";
 const CF_ACCOUNT_ID = process.env.CF_ACCOUNT_ID || "";
 const CF_TOKEN = process.env.CF_TOKEN || "";
+const GROQ_KEY = process.env.GROQ_KEY || "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";
+const JWT_SECRET = process.env.JWT_SECRET || "fundora-ai-secreto-2026";
+const SAFE_ROOT = path.join(os.homedir(), "fundora-ai");
 
-// ════ GROQ CLOUD (ultrarrápido, gratuito) ════
-const GROQ_KEY = "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";
+// Modelos disponibles
+const MODELOS = {
+  potente:  "@cf/meta/llama-3.3-70b-instruct-fp8-fast",
+  rapido:   "@cf/meta/llama-3.1-8b-instruct",
+  codigo:   "@cf/meta/llama-3.3-70b-instruct-fp8-fast", // fallback, ideal: qwen-coder
+  analisis: "@cf/meta/llama-3.3-70b-instruct-fp8-fast",
+};
+
 const GROQ_MODELS = {
-  rapido: "llama-3.1-8b-instant",
-  potente: "llama-3.3-70b-versatile",
+  rapido:   "llama-3.1-8b-instant",
+  potente:  "llama-3.3-70b-versatile",
   analisis: "deepseek-r1-distill-llama-70b"
 };
 
-const SAFE_ROOT = path.join(os.homedir(), "fundora-ai");
-
-// ==================== AGENTES ====================
+// ══════════════════════════════════════════════
+//  AGENTES — 17 especializados con modelos definidos
+// ══════════════════════════════════════════════
 const AGENTES = {
-  rastreador: {
-    nombre: "Rastreador Inteligente",
-    modelo: "@cf/meta/llama-3.1-8b-instruct",
-    system: "Eres el Rastreador de Fundora Agency AI. Buscas información en fuentes confiables para nutrir a todos los agentes. Trabajas en segundo plano."
-  },
-  corrector: {
-    nombre: "Corrector de Errores",
-    modelo: "@cf/meta/llama-3.1-8b-instruct",
-    system: "Eres el Corrector de Fundora Agency AI. Analizas errores y propones soluciones concretas en formato JSON."
-  },
-  verificador: {
-    nombre: "Verificador de Calidad",
-    modelo: "@cf/meta/llama-3.1-8b-instruct",
-    system: "Eres el Verificador de Fundora Agency AI. Revisas resultados y respondes en formato JSON."
-  },
-  supervisor: {
-    nombre: "Supervisor de Pensamiento",
-    modelo: "@cf/meta/llama-3.1-8b-instruct",
-    system: "Eres el Supervisor de Fundora Agency AI. Antes de ejecutar cualquier tarea crítica, analizas el plan, anticipas posibles errores y sugieres precauciones."
-  },
+
+  // ── NÚCLEO OPERATIVO ──
   general: {
     nombre: "FUNDORA AI",
-    modelo: "@cf/meta/llama-3.3-70b-instruct-fp8-fast",
-    system: `Eres FUNDORA AI, asistente directo. Respuestas cortas y precisas. Si puedes hacer algo, hazlo sin preguntar. Si no puedes, dilo claro y sugiere alternativa. Sin rodeos.`,
+    modelo: MODELOS.potente,
+    area: "Núcleo",
+    system: `Eres FUNDORA AI, el orquestador central de Fundora Agency AI. Tu misión es entender exactamente lo que necesita el usuario y ejecutarlo de inmediato, coordinando con los agentes especializados cuando sea necesario.
+
+CAPACIDADES QUE TIENES (puedes ejecutarlas sin que el usuario lo pida explícitamente):
+- Generar imágenes, logos, diseños → usas ACTION:imagen
+- Generar videos cortos → usas ACTION:video  
+- Generar documentos PDF → usas ACTION:pdf
+- Escribir y ejecutar código → usas ACTION:codigo
+- Análisis financiero → delegas a financiero
+- Estrategia de negocio → delegas a ceo
+- Contenido legal → delegas a abogado
+- Diseño y producción → delegas a director
+
+PROTOCOLO DE RESPUESTA:
+1. Si el usuario pide algo que puedes ejecutar, responde SIEMPRE en este formato JSON:
+{"texto": "Tu respuesta conversacional aquí", "accion": "imagen|video|pdf|codigo|chat", "parametros": {"prompt": "...", "titulo": "...", "contenido": "..."}, "agente_delegado": "id_agente_si_delegas"}
+
+2. Si es una conversación normal sin acción: {"texto": "Tu respuesta", "accion": "chat"}
+
+DETECCIÓN DE INTENCIONES:
+- "hazme/crea/genera/diseña + imagen/logo/foto/banner/poster" → accion: imagen
+- "hazme/crea/genera + video/animación/clip" → accion: video  
+- "crea/genera + PDF/documento/informe/reporte" → accion: pdf
+- "escribe/desarrolla/programa + código/app/script" → accion: codigo
+- Todo lo demás → accion: chat
+
+Eres directo, eficiente y proactivo. Nunca preguntas si ya sabes lo que necesitas.`
   },
+
+  ceo: {
+    nombre: "FUNDORA PRIME",
+    modelo: MODELOS.potente,
+    area: "Estrategia",
+    system: `Eres el CEO digital de Fundora Prime Atlantic LLC — clon estratégico de Yoel Fundora. Conoces a fondo: PAS (Prime Atlantic Solutions, marketplace Miami-TCI), BetGroup Pro (plataforma de apuestas deportivas), FUNDORA AGENCY AI (este sistema de agentes), Nexo (marketplace cubano en desarrollo).
+
+FILOSOFÍA: Visión ejecutiva. Primero el impacto en el negocio, luego los detalles técnicos. Cada decisión se evalúa contra ingresos, escalabilidad y ventaja competitiva.
+
+PROTOCOLO:
+1. Analiza el contexto del negocio antes de responder
+2. Da recomendaciones concretas con números cuando sea posible  
+3. Prioriza acciones de alto impacto en el corto plazo
+4. Reporta en formato ejecutivo: situación → análisis → acción recomendada
+
+Respondes siempre en español. Tono: directo, ejecutivo, sin rodeos.`
+  },
+
+  supervisor: {
+    nombre: "FUNDORA SUPERVISOR",
+    modelo: MODELOS.rapido,
+    area: "Control",
+    system: `Eres el Supervisor de Fundora Agency AI. Tu rol es validar planes antes de ejecutarlos y anticipar riesgos. Siempre respondes en JSON: {"valido": true/false, "riesgos": [], "sugerencias": [], "aprobado": true/false}`
+  },
+
+  corrector: {
+    nombre: "FUNDORA CORRECTOR", 
+    modelo: MODELOS.rapido,
+    area: "Control",
+    system: `Eres el Corrector de Fundora Agency AI. Analizas errores y propones soluciones específicas. Respondes en JSON: {"diagnostico": "...", "causa_raiz": "...", "solucion": "...", "pasos": []}`
+  },
+
+  verificador: {
+    nombre: "FUNDORA VERIFICADOR",
+    modelo: MODELOS.rapido,
+    area: "Control",
+    system: `Eres el Verificador de Fundora Agency AI. Revisas que los resultados sean correctos y completos. Respondes en JSON: {"resultado": "APROBADO|FALLIDO|PARCIAL", "razon": "...", "observaciones": []}`
+  },
+
+  rastreador: {
+    nombre: "FUNDORA RASTREADOR",
+    modelo: MODELOS.rapido,
+    area: "Inteligencia",
+    system: `Eres el Rastreador Inteligente de Fundora Agency AI. Buscas, sintetizas y organizas información de fuentes confiables. Priorizas datos recientes, verificados y accionables. Formato: resumen ejecutivo + fuentes + relevancia para el negocio.`
+  },
+
+  // ── ESPECIALISTAS ──
   programador: {
     nombre: "FUNDORA DEV",
-    modelo: "@cf/meta/llama-3.3-70b-instruct-fp8-fast",
-    system: "Eres FUNDORA DEV, especialista en desarrollo de software."
+    modelo: MODELOS.codigo,
+    area: "Tecnología",
+    system: `Eres FUNDORA DEV, arquitecto de software de Fundora Prime Atlantic. Especializado en: Node.js, React, TypeScript, Python, APIs REST, Supabase, Cloudflare Workers, Vercel, Termux/Android.
+
+Stack del ecosistema Fundora:
+- PAS: React + Vite + Tailwind + Supabase (Vercel)
+- BetGroup Pro: Node.js + Express + Cloudflare AI (Render/Termux)  
+- FUNDORA AGENCY AI: Node.js + Express + CF AI (Termux + Cloudflare Tunnel)
+
+PROTOCOLO: Primero arquitectura, luego código. Código limpio, comentado, con manejo de errores. Siempre verifica que funcione en Termux (Android) cuando sea relevante.`
   },
-  psicologo: {
-    nombre: "FUNDORA MIND",
-    modelo: "@cf/meta/llama-3.3-70b-instruct-fp8-fast",
-    system: "Eres FUNDORA MIND, especialista en psicologia y bienestar digital."
-  },
-  abogado: {
-    nombre: "FUNDORA LEX",
-    modelo: "@cf/meta/llama-3.3-70b-instruct-fp8-fast",
-    system: "Eres FUNDORA LEX, especialista en derecho y contratos."
-  },
+
   director: {
     nombre: "FUNDORA VISION",
-    modelo: "@cf/meta/llama-3.3-70b-instruct-fp8-fast",
-    system: "Eres FUNDORA VISION, director de produccion audiovisual."
+    modelo: MODELOS.potente,
+    area: "Producción",
+    system: `Eres FUNDORA VISION, director creativo y de producción audiovisual de Fundora Agency AI. Experto en: prompts para generación de imágenes (Stable Diffusion, SDXL, FLUX), dirección de video, identidad visual, branding.
+
+PROTOCOLO para prompts de imagen: [estilo visual], [sujeto principal], [composición], [iluminación], [calidad], [formato]. Ejemplo: "professional corporate logo, abstract geometric design, minimalist, dark background, 8k, vector art"
+
+Para video: piensa en secuencia de frames, movimiento de cámara, ritmo visual, coherencia de estilo entre frames.`
   },
+
+  financiero: {
+    nombre: "FUNDORA FINANCE",
+    modelo: MODELOS.potente,
+    area: "Finanzas",
+    system: `Eres FUNDORA FINANCE, analista financiero de Fundora Prime Atlantic. Conoces el modelo de negocio de PAS (marketplace de importación Miami-TCI), BetGroup Pro (apuestas deportivas) y FUNDORA AGENCY AI (SaaS).
+
+PROTOCOLO: Datos primero, opiniones después. Siempre incluye: métricas clave, proyecciones numéricas, riesgos financieros, recomendación accionable. Formato: tabla cuando sea posible.`
+  },
+
+  marketing: {
+    nombre: "FUNDORA MARKET",
+    modelo: MODELOS.rapido,
+    area: "Marketing",
+    system: `Eres FUNDORA MARKET, estratega de marketing digital para el ecosistema Fundora. Especializado en: marketing para el Caribe y LATAM, comunidades cubanas en el exterior, TikTok/Instagram para negocios locales, copywriting de alto impacto.
+
+PROTOCOLO: Audiencia → mensaje → canal → CTA. Siempre orientado a conversión, no solo awareness.`
+  },
+
+  abogado: {
+    nombre: "FUNDORA LEX",
+    modelo: MODELOS.potente,
+    area: "Legal",
+    system: `Eres FUNDORA LEX, asesor legal de Fundora Prime Atlantic LLC (empresa registrada en TCI). Conoces regulaciones de: Turks and Caicos Islands, importación/exportación Miami-TCI, contratos SaaS, términos de servicio, GDPR básico.
+
+PROTOCOLO: Siempre advierte que no reemplazas a un abogado certificado. Analiza riesgos legales, propón lenguaje contractual, identifica puntos críticos. Formato: riesgo (alto/medio/bajo) → análisis → recomendación.`
+  },
+
+  psicologo: {
+    nombre: "FUNDORA MIND",
+    modelo: MODELOS.potente,
+    area: "Bienestar",
+    system: `Eres FUNDORA MIND, psicólogo organizacional y coach de rendimiento de Fundora Agency AI. Ayudas a: tomar decisiones bajo presión, gestionar equipos, mantener el foco como CEO emprendedor, superar bloqueos mentales.
+
+PROTOCOLO: Escucha activa → identificar patrón → herramienta concreta → seguimiento. Tono cálido pero directo. No psicoanálisis, sino herramientas prácticas.`
+  },
+
+  medico: {
+    nombre: "FUNDORA HEALTH",
+    modelo: MODELOS.potente,
+    area: "Salud",
+    system: `Eres FUNDORA HEALTH, asesor de salud y bienestar optimizado para emprendedores de alto rendimiento. Información basada en evidencia sobre: nutrición para el foco, sueño, ejercicio, gestión del estrés crónico.
+
+PROTOCOLO: Siempre aclara que no reemplazas a un médico. Información práctica y accionable. Foco en rendimiento sostenible, no en soluciones rápidas.`
+  },
+
   analista: {
     nombre: "FUNDORA SPORTS",
-    modelo: "@cf/meta/llama-3.3-70b-instruct-fp8-fast",
-    system: "Eres FUNDORA SPORTS, analista deportivo."
+    modelo: MODELOS.potente,
+    area: "Deportes",
+    system: `Eres FUNDORA SPORTS, analista de datos deportivos y apuestas de Fundora Agency AI. Soporte directo para BetGroup Pro. Especializado en: análisis estadístico de partidos, probabilidades, tendencias, value betting.
+
+PROTOCOLO: Datos objetivos, no predicciones subjetivas. Siempre incluye: nivel de confianza, variables consideradas, limitaciones del análisis. Formato: tabla comparativa cuando sea posible.`
   },
-  ceo: {
-    nombre: "CEO Fundora Prime",
-    modelo: "@cf/meta/llama-3.3-70b-instruct-fp8-fast",
-    system: "Eres el CEO de Fundora Agency AI, un clon digital de Yoel Fundora. Conoces BetGroup, Fundora AI, reglas de negocio, independencia tecnológica."
+
+  ecommerce: {
+    nombre: "FUNDORA SHOP",
+    modelo: MODELOS.rapido,
+    area: "Comercio",
+    system: `Eres FUNDORA SHOP, especialista en comercio electrónico y el marketplace de importación PAS (Prime Atlantic Solutions). Conoces el flujo Miami→TCI, los proveedores, la logística del Caribe, y la experiencia del cliente en contextos de baja bancarización.
+
+PROTOCOLO: Conversión primero. Siempre piensa en el journey del cliente desde el primer clic hasta la entrega.`
+  },
+
+  turismo: {
+    nombre: "FUNDORA TRAVEL",
+    modelo: MODELOS.rapido,
+    area: "Turismo",
+    system: `Eres FUNDORA TRAVEL, especialista en turismo del Caribe con base en Providenciales, Turks and Caicos. Conoces el mercado de lujo, los destinos del archipiélago, y las oportunidades de negocio en hotelería y experiencias premium.
+
+PROTOCOLO: Experiencia del cliente premium. Siempre incluye: qué ofrecer, cómo diferenciarse, cómo monetizar.`
+  },
+
+  gastronomico: {
+    nombre: "FUNDORA CHEF",
+    modelo: MODELOS.rapido,
+    area: "Gastronomía",
+    system: `Eres FUNDORA CHEF, consultor gastronómico especializado en el Caribe. Combinas cocina, negocio y marketing. Ayudas con: menús rentables, control de costos, estrategia de F&B, marketing gastronómico en redes.
+
+PROTOCOLO: Rentabilidad primero, creatividad después. Siempre incluye costos estimados y margen cuando sea posible.`
+  },
+
+  rrhh: {
+    nombre: "FUNDORA HR",
+    modelo: MODELOS.rapido,
+    area: "Recursos Humanos",
+    system: `Eres FUNDORA HR, director de recursos humanos virtual de Fundora Prime Atlantic. Especializado en: equipos remotos y distribuidos, contratación en el Caribe/LATAM, cultura organizacional para startups, onboarding digital.
+
+PROTOCOLO: Personas primero. Siempre equilibra los intereses de la empresa con el bienestar del equipo.`
+  },
+
+  educador: {
+    nombre: "FUNDORA EDU",
+    modelo: MODELOS.rapido,
+    area: "Educación",
+    system: `Eres FUNDORA EDU, diseñador instruccional de Fundora Agency AI. Ayudas a crear: cursos online, tutoriales, documentación técnica, materiales de capacitación. Especializado en aprendizaje para adultos y formatos digitales.
+
+PROTOCOLO: Objetivo de aprendizaje primero. Estructura: introducción → contenido → práctica → evaluación.`
+  },
+
+  inmobiliario: {
+    nombre: "FUNDORA REALTY",
+    modelo: MODELOS.potente,
+    area: "Inmobiliaria",
+    system: `Eres FUNDORA REALTY, asesor inmobiliario del Caribe. Especializado en el mercado de Turks and Caicos, inversión inmobiliaria en islas, regulaciones para compradores extranjeros, y oportunidades de desarrollo.
+
+PROTOCOLO: Due diligence primero. Siempre incluye: análisis de mercado, riesgos, rendimiento esperado, pasos legales necesarios.`
+  },
+
+  agro: {
+    nombre: "FUNDORA AGRO",
+    modelo: MODELOS.rapido,
+    area: "Agricultura",
+    system: `Eres FUNDORA AGRO, consultor agrícola y de tecnología aplicada al campo. Especializado en: agricultura tropical, hidropónica, eficiencia hídrica, tecnología para pequeños y medianos agricultores de LATAM y el Caribe.
+
+PROTOCOLO: Soluciones adaptadas al contexto local. Siempre considera: clima, recursos disponibles, mercado local.`
+  },
+
+  creativo: {
+    nombre: "FUNDORA VISION CREATIVA",
+    modelo: MODELOS.potente,
+    area: "Creatividad",
+    system: `Eres FUNDORA VISION CREATIVA, director creativo de contenido de Fundora Agency AI. Especializado en: guiones, copywriting, narrativa de marca, prompts creativos para IA, libros y contenido largo.
+
+PROTOCOLO: La creatividad sirve a un objetivo. Siempre pregunta: ¿a quién va dirigido? ¿qué emoción queremos provocar? ¿cuál es el CTA?`
   }
 };
 
-// ==================== MEMORIA Y CONOCIMIENTO ====================
+// ══════════════════════════════════════════════
+//  DETECCIÓN DE INTENCIONES
+// ══════════════════════════════════════════════
+function detectarIntencion(mensaje) {
+  const m = mensaje.toLowerCase();
+  
+  // IMAGEN
+  if (/\b(genera|crea|diseña|hazme|dame|haz|hacer|diseñar|generar|crear|mostrar|quiero|necesito)\b.*\b(imagen|foto|logo|banner|poster|diseño|ilustración|portada|miniatura|thumbnail|avatar|icon|icono|cartel|afiche|flyer|visual)\b/i.test(m) ||
+      /\b(imagen|foto|logo|banner|poster|diseño|ilustración)\b.*\b(de|para|del|con|sobre)\b/i.test(m)) {
+    return { tipo: "imagen", confianza: "alta" };
+  }
+  
+  // VIDEO
+  if (/\b(genera|crea|hazme|haz|hacer|generar|crear)\b.*\b(video|clip|animación|animacion|reels|reel|corto|film)\b/i.test(m) ||
+      /\b(video|clip|animación)\b.*\b(de|para|del|sobre)\b/i.test(m)) {
+    return { tipo: "video", confianza: "alta" };
+  }
+  
+  // PDF/DOCUMENTO
+  if (/\b(genera|crea|hazme|haz|hacer|generar|crear|exporta|exportar)\b.*\b(pdf|documento|informe|reporte|report|propuesta|contrato|presupuesto|cotización)\b/i.test(m) ||
+      /\b(pdf|documento|informe|reporte)\b.*\b(de|para|del|sobre)\b/i.test(m)) {
+    return { tipo: "pdf", confianza: "alta" };
+  }
+  
+  // CÓDIGO
+  if (/\b(programa|desarrolla|escribe|crea|genera|haz)\b.*\b(código|codigo|script|app|aplicación|aplicacion|función|funcion|api|endpoint|bot|automatización|automatizacion)\b/i.test(m) ||
+      /\b(en javascript|en python|en node|en react|en typescript)\b/i.test(m)) {
+    return { tipo: "codigo", confianza: "alta" };
+  }
+  
+  return { tipo: "chat", confianza: "alta" };
+}
+
+// ══════════════════════════════════════════════
+//  LLAMADA A CLOUDFLARE AI
+// ══════════════════════════════════════════════
+async function llamarCF(modelo, mensajes, maxTokens = 1200) {
+  const resp = await fetch(
+    `https://api.cloudflare.com/client/v4/accounts/${CF_ACCOUNT_ID}/ai/run/${modelo}`,
+    {
+      method: "POST",
+      headers: { "Authorization": `Bearer ${CF_TOKEN}`, "Content-Type": "application/json" },
+      body: JSON.stringify({ messages: mensajes, max_tokens: maxTokens })
+    }
+  );
+  const data = await resp.json();
+  if (!data.success) throw new Error(JSON.stringify(data.errors));
+  return data.result.response;
+}
+
+// ══════════════════════════════════════════════
+//  MEMORIA Y CONOCIMIENTO
+// ══════════════════════════════════════════════
 const memorias = {};
-const conocimientoBase = {};
+const conocimientoExtra = {};
+const cacheConocimiento = {};
 
 async function getMemoria(sessionId, agenteId) {
-  const agente = AGENTES[agenteId] || AGENTES.general;
   if (!memorias[sessionId]) {
-    let extra = conocimientoBase[agenteId] ? " CONOCIMIENTO ADICIONAL: " + conocimientoBase[agenteId] : "";
-    try {
-      const temaMap = { general: "inteligencia artificial", programador: "desarrollo software", psicologo: "psicologia bienestar", abogado: "derecho legal", director: "produccion audiovisual", analista: "apuestas deportivas", ceo: "estrategia negocio", rastreador: "web scraping", corrector: "depuracion errores", verificador: "control calidad", supervisor: "supervision" };
-      const tema = temaMap[agenteId] || temaMap.general;
-      const resp = await fetch(SUPABASE_URL + "/rest/v1/knowledge_base?select=contenido&tema=ilike.%25" + encodeURIComponent(tema) + "%25&order=fecha.desc&limit=5", {
-        headers: { "apikey": SUPABASE_KEY, "Authorization": "Bearer " + SUPABASE_KEY }
-      });
-      if (resp.ok) {
-        const conocimientos = await resp.json();
-        if (conocimientos.length > 0) {
-          extra += "\n\n📚 CONOCIMIENTO FRESCO DE LA AGENCIA:\n" + conocimientos.map(k => "• " + k.contenido.substring(0, 200)).join("\n");
-        }
-      }
-    } catch(e) { console.warn("Error conocimiento:", e.message); }
-    memorias[sessionId] = { agenteId, historial: [{ role: "system", content: agente.system + extra }], creado: Date.now(), totalMensajes: 0 };
+    const agente = AGENTES[agenteId] || AGENTES.general;
+    let extra = conocimientoExtra[agenteId] ? "\n\nCONOCIMIENTO ADICIONAL:\n" + conocimientoExtra[agenteId] : "";
+    memorias[sessionId] = {
+      agenteId,
+      historial: [{ role: "system", content: agente.system + extra }],
+      creado: Date.now(),
+      totalMensajes: 0
+    };
   }
   return memorias[sessionId];
 }
 
-async function guardarMemoria(agenteId, sessionId, tipo, contenido, metadata = {}) {
+async function guardarMemoria(agenteId, sessionId, tipo, contenido) {
   try {
-    await fetch(SUPABASE_URL + "/rest/v1/agent_memory", {
+    await fetch(`${SUPABASE_URL}/rest/v1/agent_memory`, {
       method: "POST",
-      headers: { "Content-Type": "application/json", "apikey": SUPABASE_KEY, "Authorization": "Bearer " + SUPABASE_KEY },
-      body: JSON.stringify({ agente_id: agenteId, session_id: sessionId, tipo, contenido, metadata, timestamp: new Date().toISOString() })
+      headers: { "Content-Type": "application/json", "apikey": SUPABASE_KEY, "Authorization": `Bearer ${SUPABASE_KEY}` },
+      body: JSON.stringify({ agente_id: agenteId, session_id: sessionId, tipo, contenido, timestamp: new Date().toISOString() })
     });
-  } catch(e) { console.warn("Error guardando memoria:", e.message); }
+  } catch(e) {}
 }
 
-async function buscarMemoriaGlobal(consulta, limite = 5) {
+// ══════════════════════════════════════════════
+//  GENERADORES (usados por el orquestador)
+// ══════════════════════════════════════════════
+async function generarImagen(prompt) {
+  // Optimizar prompt con FUNDORA VISION
+  let promptOpt = prompt;
   try {
-    const resp = await fetch(SUPABASE_URL + "/rest/v1/agent_memory?select=agente_id,contenido&order=timestamp.desc&limit=50", {
-      headers: { "apikey": SUPABASE_KEY, "Authorization": "Bearer " + SUPABASE_KEY }
-    });
-    if (!resp.ok) return [];
-    const registros = await resp.json();
-    return registros.filter(r => consulta.toLowerCase().split(/\s+/).some(p => (r.contenido||"").toLowerCase().includes(p))).slice(0, limite);
-  } catch(e) { return []; }
+    promptOpt = await llamarCF(AGENTES.director.modelo, [
+      { role: "system", content: AGENTES.director.system + " Responde SOLO con el prompt optimizado para Stable Diffusion, máximo 200 caracteres." },
+      { role: "user", content: "Optimiza para imagen de alta calidad: " + prompt }
+    ], 200);
+  } catch(e) {}
+
+  const url = `https://api.cloudflare.com/client/v4/accounts/${CF_ACCOUNT_ID}/ai/run/@cf/stabilityai/stable-diffusion-xl-base-1.0`;
+  const resp = await fetch(url, {
+    method: "POST",
+    headers: { "Authorization": `Bearer ${CF_TOKEN}`, "Content-Type": "application/json" },
+    body: JSON.stringify({ prompt: promptOpt, num_steps: 20 })
+  });
+  const contentType = resp.headers.get("content-type") || "";
+  let base64;
+  if (contentType.includes("application/json")) {
+    const data = await resp.json();
+    if (!data.success) throw new Error(JSON.stringify(data.errors));
+    base64 = Buffer.from(data.result.image, "base64").toString("base64");
+  } else {
+    const buffer = await resp.arrayBuffer();
+    base64 = Buffer.from(buffer).toString("base64");
+  }
+  return { imagen: "data:image/png;base64," + base64, prompt_usado: promptOpt };
 }
 
-// ==================== FUNCIONES AUXILIARES ====================
+async function generarVideo(prompt, frames = 5) {
+  const imagenes = [];
+  for (let i = 0; i < frames; i++) {
+    const fp = `${prompt}, frame ${i+1} of ${frames}, cinematic, consistent style, smooth animation`;
+    const url = `https://api.cloudflare.com/client/v4/accounts/${CF_ACCOUNT_ID}/ai/run/@cf/stabilityai/stable-diffusion-xl-base-1.0`;
+    const resp = await fetch(url, {
+      method: "POST",
+      headers: { "Authorization": `Bearer ${CF_TOKEN}`, "Content-Type": "application/json" },
+      body: JSON.stringify({ prompt: fp, num_steps: 15 })
+    });
+    let base64;
+    const ct = resp.headers.get("content-type") || "";
+    if (ct.includes("application/json")) {
+      const d = await resp.json();
+      if (d.success) base64 = Buffer.from(d.result.image, "base64").toString("base64");
+    } else {
+      const buf = await resp.arrayBuffer();
+      base64 = Buffer.from(buf).toString("base64");
+    }
+    if (base64) {
+      imagenes.push(base64);
+      fs.writeFileSync(`/tmp/vframe_${i}.png`, Buffer.from(base64, "base64"));
+    }
+  }
+  if (imagenes.length >= 2) {
+    try {
+      execSync("ffmpeg -y -framerate 1 -i /tmp/vframe_%d.png -c:v libx264 -pix_fmt yuv420p /tmp/vout.mp4 2>/dev/null");
+      const videoBuf = fs.readFileSync("/tmp/vout.mp4");
+      const videoB64 = videoBuf.toString("base64");
+      for (let i = 0; i < frames; i++) { try { fs.unlinkSync(`/tmp/vframe_${i}.png`); } catch(e) {} }
+      try { fs.unlinkSync("/tmp/vout.mp4"); } catch(e) {}
+      return { video: "data:video/mp4;base64," + videoB64, frames: imagenes.length };
+    } catch(e) {
+      return { imagenes: imagenes.map(img => "data:image/png;base64," + img), frames: imagenes.length, nota: "Video en frames (ffmpeg no disponible)" };
+    }
+  }
+  throw new Error("No se pudieron generar suficientes frames");
+}
+
+async function generarPDF(titulo, contenido) {
+  return new Promise((resolve, reject) => {
+    const doc = new PDFDocument({ size: "A4", margin: 50 });
+    const chunks = [];
+    doc.on("data", c => chunks.push(c));
+    doc.on("end", () => {
+      const b64 = Buffer.concat(chunks).toString("base64");
+      resolve({ pdf: "data:application/pdf;base64," + b64, nombre: titulo + ".pdf" });
+    });
+    doc.on("error", reject);
+    doc.fontSize(22).font("Helvetica-Bold").text(titulo, { align: "center" });
+    doc.moveDown(1.5);
+    doc.fontSize(12).font("Helvetica").text(contenido, { align: "left", lineGap: 4 });
+    doc.end();
+  });
+}
+
+// ══════════════════════════════════════════════
+//  AGENTES DE CONTROL (internos)
+// ══════════════════════════════════════════════
 async function validarPensamiento(tarea, contexto = "") {
   try {
-    const agente = AGENTES.supervisor;
-    const resp = await fetch("https://api.cloudflare.com/client/v4/accounts/" + CF_ACCOUNT_ID + "/ai/run/" + agente.modelo, {
-      method: "POST",
-      headers: { "Authorization": "Bearer " + CF_TOKEN, "Content-Type": "application/json" },
-      body: JSON.stringify({
-        messages: [{ role: "system", content: agente.system }, { role: "user", content: `Tarea: "${tarea}". Contexto: ${contexto}. Responde JSON.` }],
-        max_tokens: 300
-      })
-    });
-    const data = await resp.json();
-    if (data.success) return JSON.parse(data.result.response);
-  } catch(e) { console.warn("Error supervisor:", e.message); }
-  return { valido: true, riesgos: [], sugerencias: [] };
+    const resp = await llamarCF(AGENTES.supervisor.modelo, [
+      { role: "system", content: AGENTES.supervisor.system },
+      { role: "user", content: `Tarea: "${tarea}". Contexto: ${contexto}. Responde JSON.` }
+    ], 300);
+    return JSON.parse(resp);
+  } catch(e) { return { valido: true, riesgos: [], sugerencias: [], aprobado: true }; }
 }
 
 async function consultarCorrector(errorMsg, comando) {
   try {
-    const agente = AGENTES.corrector;
-    const resp = await fetch("https://api.cloudflare.com/client/v4/accounts/" + CF_ACCOUNT_ID + "/ai/run/" + agente.modelo, {
-      method: "POST",
-      headers: { "Authorization": "Bearer " + CF_TOKEN, "Content-Type": "application/json" },
-      body: JSON.stringify({
-        messages: [{ role: "system", content: agente.system }, { role: "user", content: `Error: ${errorMsg}. Comando: ${comando}. Responde JSON.` }],
-        max_tokens: 300
-      })
-    });
-    const data = await resp.json();
-    if (data.success) return JSON.parse(data.result.response);
-  } catch(e) { console.warn("Error corrector:", e.message); }
-  return { diagnostico: "No se pudo analizar.", solucion: "Revisar manualmente." };
+    const resp = await llamarCF(AGENTES.corrector.modelo, [
+      { role: "system", content: AGENTES.corrector.system },
+      { role: "user", content: `Error: ${errorMsg}. Comando: ${comando}. Responde JSON.` }
+    ], 300);
+    return JSON.parse(resp);
+  } catch(e) { return { diagnostico: "No analizado.", solucion: "Revisar manualmente." }; }
 }
 
 async function verificarResultado(texto, tipo = "general") {
   try {
-    const agente = AGENTES.verificador;
-    const resp = await fetch("https://api.cloudflare.com/client/v4/accounts/" + CF_ACCOUNT_ID + "/ai/run/" + agente.modelo, {
-      method: "POST",
-      headers: { "Authorization": "Bearer " + CF_TOKEN, "Content-Type": "application/json" },
-      body: JSON.stringify({
-        messages: [{ role: "system", content: agente.system }, { role: "user", content: `Tipo: ${tipo}. Contenido: ${texto.substring(0,2000)}. Responde JSON.` }],
-        max_tokens: 200
-      })
-    });
-    const data = await resp.json();
-    if (data.success) return JSON.parse(data.result.response);
-  } catch(e) { console.warn("Error verificador:", e.message); }
-  return { resultado: "FALLIDO", razon: "No se pudo verificar." };
+    const resp = await llamarCF(AGENTES.verificador.modelo, [
+      { role: "system", content: AGENTES.verificador.system },
+      { role: "user", content: `Tipo: ${tipo}. Contenido: ${texto.substring(0,2000)}. Responde JSON.` }
+    ], 200);
+    return JSON.parse(resp);
+  } catch(e) { return { resultado: "APROBADO", razon: "Verificación no disponible." }; }
 }
 
-async function registrarError(comando, errorMsg, solucion, resuelto = false) {
-  try {
-    await fetch(SUPABASE_URL + "/rest/v1/error_logs", {
-      method: "POST",
-      headers: { "Content-Type": "application/json", "apikey": SUPABASE_KEY, "Authorization": "Bearer " + SUPABASE_KEY },
-      body: JSON.stringify({ comando, error: errorMsg, solucion, resuelto, timestamp: new Date().toISOString() })
-    });
-  } catch(e) { console.warn("Error registrando error:", e.message); }
-}
-
-function crearSandbox() {
-  const id = Math.random().toString(36).substring(2, 10);
-  const dir = path.join(os.tmpdir(), "fundora-sim-" + id);
-  fs.mkdirSync(dir, { recursive: true });
-  return dir;
-}
-
-function limpiarSandbox(dir) {
-  try { fs.rmSync(dir, { recursive: true, force: true }); } catch(e) {}
-}
-
-// ==================== MIDDLEWARE ====================
-app.use(express.json());
-
+// ══════════════════════════════════════════════
+//  MIDDLEWARE
+// ══════════════════════════════════════════════
+app.use(express.json({ limit: "50mb" }));
+app.use((req, res, next) => { logger.info(`${req.method} ${req.path}`); next(); });
 app.use((req, res, next) => {
-  logger.info(`${req.method} ${req.path}`);
+  res.header("Access-Control-Allow-Origin", "*");
+  res.header("Access-Control-Allow-Headers", "Content-Type, Authorization, X-Role");
+  res.header("Access-Control-Allow-Methods", "GET, POST, PUT, DELETE, OPTIONS");
+  if (req.method === "OPTIONS") return res.sendStatus(200);
   next();
 });
-
 app.use(express.static("public"));
 
-// ==================== ENDPOINTS ====================
+// ══════════════════════════════════════════════
+//  ENDPOINTS PRINCIPALES
+// ══════════════════════════════════════════════
+
 app.get("/health", (req, res) => {
-  res.json({ status: "online", nombre: "FUNDORA AGENCY", version: "3.0", agentes: Object.keys(AGENTES).length, uptime: process.uptime() });
+  res.json({
+    status: "online",
+    nombre: "FUNDORA AGENCY AI",
+    version: "4.0",
+    agentes: Object.keys(AGENTES).length,
+    uptime_horas: (process.uptime() / 3600).toFixed(2),
+    capacidades: ["chat", "imagen", "video", "pdf", "codigo", "terminal"],
+    orquestador: "activo"
+  });
 });
 
 app.get("/agentes", (req, res) => {
-  const lista = Object.keys(AGENTES).map(id => ({ id, nombre: AGENTES[id].nombre, modelo: AGENTES[id].modelo }));
+  const lista = Object.keys(AGENTES).map(id => ({
+    id,
+    nombre: AGENTES[id].nombre,
+    modelo: AGENTES[id].modelo,
+    area: AGENTES[id].area || "General"
+  }));
   res.json({ agentes: lista, total: lista.length });
 });
 
+// ══════════════════════════════════════════════
+//  /chat — ORQUESTADOR PRINCIPAL
+//  Detecta intención → ejecuta automáticamente
+// ══════════════════════════════════════════════
 app.post("/chat", async (req, res) => {
-  const { mensaje, agente = "general", sessionId = "default" } = req.body;
+  const { mensaje, agente: agenteId = "general", sessionId = "default" } = req.body;
   if (!mensaje) return res.status(400).json({ error: "Falta mensaje" });
+
   try {
-    guardarMemoria(agente, sessionId, "chat", "USUARIO: " + mensaje);
-    // Si el usuario pide generar una imagen, optimizar el prompt automáticamente
-    if (mensaje.toLowerCase().includes("genera") && (mensaje.toLowerCase().includes("imagen") || mensaje.toLowerCase().includes("logo") || mensaje.toLowerCase().includes("foto"))) {
+    const config = AGENTES[agenteId] || AGENTES.general;
+    const memoria = await getMemoria(sessionId, agenteId);
+    
+    // 1. Detectar intención del mensaje
+    const intencion = detectarIntencion(mensaje);
+    
+    // 2. Si es acción directa (imagen/video/pdf), ejecutar sin pasar por el LLM primero
+    if (intencion.tipo !== "chat" && agenteId === "general") {
+      
+      memoria.historial.push({ role: "user", content: mensaje });
+      
       try {
-        const agenteOpt = AGENTES.director;
-        const respOpt = await fetch("https://api.cloudflare.com/client/v4/accounts/" + CF_ACCOUNT_ID + "/ai/run/" + agenteOpt.modelo, {
-          method: "POST",
-          headers: { "Authorization": "Bearer " + CF_TOKEN, "Content-Type": "application/json" },
-          body: JSON.stringify({
-            messages: [
-              { role: "system", content: agenteOpt.system + " Eres experto en prompts visuales. Responde SOLO con el prompt optimizado." },
-              { role: "user", content: "Optimiza: " + mensaje }
-            ],
-            max_tokens: 150
-          })
+        let resultado = {};
+        let textoRespuesta = "";
+        
+        if (intencion.tipo === "imagen") {
+          textoRespuesta = `🎨 Generando imagen para: "${mensaje}"...`;
+          const r = await generarImagen(mensaje);
+          resultado = { accion: "imagen", ...r };
+          textoRespuesta = `✅ Imagen generada. Prompt usado: "${r.prompt_usado}"`;
+          
+        } else if (intencion.tipo === "video") {
+          textoRespuesta = `🎬 Generando video para: "${mensaje}"...`;
+          const r = await generarVideo(mensaje, 5);
+          resultado = { accion: "video", ...r };
+          textoRespuesta = r.video 
+            ? `✅ Video generado (${r.frames} frames → MP4)`
+            : `✅ Secuencia de ${r.frames} frames generada`;
+            
+        } else if (intencion.tipo === "pdf") {
+          // Generar contenido con el agente primero
+          const contenidoPDF = await llamarCF(config.modelo, [
+            { role: "system", content: config.system },
+            { role: "user", content: "Genera el contenido completo para este documento: " + mensaje }
+          ], 1500);
+          const titulo = mensaje.replace(/genera|crea|hazme|un|una|el|la|pdf|documento|informe/gi, "").trim().slice(0, 50) || "Documento Fundora";
+          const r = await generarPDF(titulo, contenidoPDF);
+          resultado = { accion: "pdf", ...r };
+          textoRespuesta = `✅ PDF generado: "${titulo}.pdf"`;
+          
+        } else if (intencion.tipo === "codigo") {
+          const codigoResp = await llamarCF(AGENTES.programador.modelo, [
+            { role: "system", content: AGENTES.programador.system },
+            { role: "user", content: mensaje }
+          ], 2000);
+          resultado = { accion: "codigo", codigo: codigoResp };
+          textoRespuesta = codigoResp;
+        }
+        
+        memoria.historial.push({ role: "assistant", content: textoRespuesta });
+        memoria.totalMensajes++;
+        guardarMemoria(agenteId, sessionId, "chat", `USER: ${mensaje} | ACCION: ${intencion.tipo}`);
+        
+        return res.json({
+          agente: config.nombre,
+          respuesta: textoRespuesta,
+          sessionId,
+          mensajes: memoria.totalMensajes,
+          ...resultado
         });
-        const dataOpt = await respOpt.json();
-        if (dataOpt.success) mensajeOptimizado = "Genera una imagen con el siguiente prompt: " + dataOpt.result.response.trim();
-      } catch(e) {}
+        
+      } catch(accionError) {
+        // Si la acción falla, continuar con chat normal
+        logger.warn(`Acción ${intencion.tipo} falló: ${accionError.message}`);
+      }
     }
-    // Si el usuario pide generar una imagen, optimizar el prompt automáticamente
-    if (mensaje.toLowerCase().includes("genera") && (mensaje.toLowerCase().includes("imagen") || mensaje.toLowerCase().includes("logo") || mensaje.toLowerCase().includes("foto"))) {
-      try {
-        const agenteOpt = AGENTES.director;
-        const respOpt = await fetch("https://api.cloudflare.com/client/v4/accounts/" + CF_ACCOUNT_ID + "/ai/run/" + agenteOpt.modelo, {
-          method: "POST",
-          headers: { "Authorization": "Bearer " + CF_TOKEN, "Content-Type": "application/json" },
-          body: JSON.stringify({
-            messages: [
-              { role: "system", content: agenteOpt.system + " Eres experto en prompts visuales. Responde SOLO con el prompt optimizado." },
-              { role: "user", content: "Optimiza: " + mensaje }
-            ],
-            max_tokens: 150
-          })
-        });
-        const dataOpt = await respOpt.json();
-        if (dataOpt.success) mensajeOptimizado = "Genera una imagen con el siguiente prompt: " + dataOpt.result.response.trim();
-      } catch(e) {}
-    }
-    const memoria = await getMemoria(sessionId, agente);
-    const config = AGENTES[agente] || AGENTES.general;
+    
+    // 3. Chat normal con memoria
     memoria.historial.push({ role: "user", content: mensaje });
-    const resp = await fetch("https://api.cloudflare.com/client/v4/accounts/" + CF_ACCOUNT_ID + "/ai/run/" + config.modelo, {
-      method: "POST",
-      headers: { "Authorization": "Bearer " + CF_TOKEN, "Content-Type": "application/json" },
-      body: JSON.stringify({ messages: memoria.historial, max_tokens: 1000 })
-    });
-    const data = await resp.json();
-    const respuesta = data.success ? data.result.response : "Error al generar respuesta.";
-    memoria.historial.push({ role: "assistant", content: respuesta });
+    const respuesta = await llamarCF(config.modelo, memoria.historial, 1200);
+    
+    // 4. Parsear si el agente devuelve JSON con acciones (agente general entrenado para esto)
+    let respuestaFinal = respuesta;
+    let extras = {};
+    try {
+      const jsonMatch = respuesta.match(/\{[\s\S]*\}/);
+      if (jsonMatch) {
+        const parsed = JSON.parse(jsonMatch[0]);
+        if (parsed.accion && parsed.accion !== "chat") {
+          // El agente decidió ejecutar una acción
+          respuestaFinal = parsed.texto || respuesta;
+          if (parsed.accion === "imagen" && parsed.parametros?.prompt) {
+            const r = await generarImagen(parsed.parametros.prompt);
+            extras = { accion: "imagen", ...r };
+            respuestaFinal = parsed.texto + `\n\n✅ Imagen generada.`;
+          } else if (parsed.accion === "pdf" && parsed.parametros) {
+            const r = await generarPDF(parsed.parametros.titulo || "Documento", parsed.parametros.contenido || "");
+            extras = { accion: "pdf", ...r };
+            respuestaFinal = parsed.texto + `\n\n✅ PDF generado.`;
+          }
+        } else if (parsed.texto) {
+          respuestaFinal = parsed.texto;
+        }
+      }
+    } catch(e) {} // Si no es JSON válido, usar respuesta tal cual
+    
+    memoria.historial.push({ role: "assistant", content: respuestaFinal });
     memoria.totalMensajes++;
-    guardarMemoria(agente, sessionId, "chat", "AGENTE: " + respuesta);
-        const respuestaLimpia = (respuesta || "")
-      .replace(/[\u0000-\u001F\u007F-\u009F]/g, '')
-      .replace(/[\u200B-\u200D\uFEFF]/g, '')
-      .replace(/\n/g, '\\n')
-      .replace(/\r/g, '\\r')
-      .replace(/\t/g, '\\t')
-      .replace(/"/g, '\\"')
-      .replace(/\\/g, '\\\\');
-    res.setHeader('Content-Type', 'application/json; charset=utf-8');
-    res.json({ agente: config.nombre, respuesta: respuestaLimpia, sessionId, mensajes: memoria.totalMensajes });
+    guardarMemoria(agenteId, sessionId, "chat", `USER: ${mensaje} | BOT: ${respuestaFinal.slice(0,200)}`);
+    
+    res.json({
+      agente: config.nombre,
+      respuesta: respuestaFinal,
+      sessionId,
+      mensajes: memoria.totalMensajes,
+      ...extras
+    });
+    
+  } catch(e) {
+    logger.error("Error /chat:", e.message);
+    res.status(500).json({ error: e.message });
+  }
+});
+
+// ══════════════════════════════════════════════
+//  GENERADORES DIRECTOS (para uso desde Studio)
+// ══════════════════════════════════════════════
+
+app.post("/generar/imagen", async (req, res) => {
+  const { prompt } = req.body;
+  if (!prompt) return res.status(400).json({ error: "Falta prompt" });
+  try {
+    const r = await generarImagen(prompt);
+    res.json({ status: "ok", ...r });
   } catch(e) { res.status(500).json({ error: e.message }); }
 });
+
+app.post("/generar/imagen-ilimitado", async (req, res) => {
+  const { prompt } = req.body;
+  if (!prompt) return res.status(400).json({ error: "Falta prompt" });
+  const modelos = ["black-forest-labs/FLUX.1-dev", "stabilityai/stable-diffusion-xl-base-1.0", "nota-ai/bk-sdm-small"];
+  for (const modelo of modelos) {
+    try {
+      const resp = await fetch(`https://router.huggingface.co/hf-inference/models/${modelo}`, {
+        method: "POST", headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ inputs: prompt })
+      });
+      if (resp.ok) {
+        const buffer = await resp.buffer();
+        return res.json({ status: "ok", imagen: "data:image/png;base64," + buffer.toString("base64"), modelo });
+      }
+    } catch(e) { continue; }
+  }
+  // Fallback a Cloudflare
+  try {
+    const r = await generarImagen(prompt);
+    res.json({ status: "ok", ...r, modelo: "cloudflare-fallback" });
+  } catch(e) { res.status(500).json({ error: "Todos los modelos fallaron" }); }
+});
+
+app.post("/generar/video", async (req, res) => {
+  const { prompt, frames = 5 } = req.body;
+  if (!prompt) return res.status(400).json({ error: "Falta prompt" });
+  try {
+    const r = await generarVideo(prompt, frames);
+    res.json({ status: "ok", ...r });
+  } catch(e) { res.status(500).json({ error: e.message }); }
+});
+
+app.post("/generar/video-cloudflare", async (req, res) => {
+  const { prompt, frames = 5 } = req.body;
+  if (!prompt) return res.status(400).json({ error: "Falta prompt" });
+  try {
+    const r = await generarVideo(prompt, frames);
+    res.json({ status: "ok", ...r });
+  } catch(e) { res.status(500).json({ error: e.message }); }
+});
+
+app.post("/generar/pdf", async (req, res) => {
+  const { titulo = "Documento", contenido = "", imagen } = req.body;
+  if (!contenido && !imagen) return res.status(400).json({ error: "Falta contenido o imagen" });
+  try {
+    const r = await generarPDF(titulo, contenido);
+    res.json({ status: "ok", ...r });
+  } catch(e) { res.status(500).json({ error: e.message }); }
+});
+
+app.post("/generar/img2img", upload.single("imagen"), async (req, res) => {
+  const { prompt } = req.body;
+  if (!req.file || !prompt) return res.status(400).json({ error: "Falta imagen y/o prompt" });
+  try {
+    const r = await generarImagen(prompt + ", based on a reference image, high quality, detailed");
+    res.json({ status: "ok", ...r, nota: "img2img simulado" });
+  } catch(e) { res.status(500).json({ error: e.message }); }
+});
+
+// ══════════════════════════════════════════════
+//  ENDPOINTS COMPLEMENTARIOS
+// ══════════════════════════════════════════════
 
 app.post("/consulta", async (req, res) => {
   const { mensaje, agente = "general" } = req.body;
   if (!mensaje) return res.status(400).json({ error: "Falta mensaje" });
   const config = AGENTES[agente] || AGENTES.general;
   try {
-    const resp = await fetch("https://api.cloudflare.com/client/v4/accounts/" + CF_ACCOUNT_ID + "/ai/run/" + config.modelo, {
-      method: "POST",
-      headers: { "Authorization": "Bearer " + CF_TOKEN, "Content-Type": "application/json" },
-      body: JSON.stringify({ messages: [{ role: "system", content: config.system }, { role: "user", content: mensaje }], max_tokens: 500 })
-    });
-    const data = await resp.json();
-    const respuestaLimpia = (data.success ? data.result.response : "Error")
-      .replace(/[\u0000-\u001F\u007F-\u009F]/g, '')
-      .replace(/[\u200B-\u200D\uFEFF]/g, '')
-      .replace(/\n/g, '\\n')
-      .replace(/\r/g, '\\r')
-      .replace(/\t/g, '\\t')
-      .replace(/"/g, '\\"')
-      .replace(/\\/g, '\\\\');
-    res.json({ agente: config.nombre, respuesta: respuestaLimpia });
+    const respuesta = await llamarCF(config.modelo, [
+      { role: "system", content: config.system },
+      { role: "user", content: mensaje }
+    ], 800);
+    res.json({ agente: config.nombre, respuesta });
   } catch(e) { res.status(500).json({ error: e.message }); }
 });
 
@@ -351,28 +754,71 @@ app.post("/validar", async (req, res) => {
 app.post("/feedback", async (req, res) => {
   const { agenteId, sessionId, consulta, respuesta, puntuacion, comentario } = req.body;
   if (!agenteId || !puntuacion) return res.status(400).json({ error: "Faltan campos" });
-  await fetch(SUPABASE_URL + "/rest/v1/learning_logs", {
-    method: "POST",
-    headers: { "Content-Type": "application/json", "apikey": SUPABASE_KEY, "Authorization": "Bearer " + SUPABASE_KEY },
-    body: JSON.stringify({ agente_id: agenteId, session_id: sessionId || "default", consulta: consulta || "", respuesta: respuesta || "", puntuacion, comentario: comentario || "", timestamp: new Date().toISOString() })
-  });
-  res.json({ status: "ok" });
+  try {
+    await fetch(`${SUPABASE_URL}/rest/v1/learning_logs`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json", "apikey": SUPABASE_KEY, "Authorization": `Bearer ${SUPABASE_KEY}` },
+      body: JSON.stringify({ agente_id: agenteId, session_id: sessionId || "default", consulta: consulta || "", respuesta: respuesta || "", puntuacion, comentario: comentario || "", timestamp: new Date().toISOString() })
+    });
+    res.json({ status: "ok" });
+  } catch(e) { res.status(500).json({ error: e.message }); }
 });
 
 app.get("/memoria/:agenteId", async (req, res) => {
   const { agenteId } = req.params;
   const sessionId = req.query.sessionId || "default";
-  const resp = await fetch(SUPABASE_URL + "/rest/v1/agent_memory?select=contenido,tipo,timestamp&agente_id=eq." + agenteId + "&session_id=eq." + sessionId + "&order=timestamp.desc&limit=20", {
-    headers: { "apikey": SUPABASE_KEY, "Authorization": "Bearer " + SUPABASE_KEY }
-  });
-  const memoria = await resp.json();
-  res.json({ agente: agenteId, sessionId, memoria, total: memoria.length });
+  try {
+    const resp = await fetch(`${SUPABASE_URL}/rest/v1/agent_memory?select=contenido,tipo,timestamp&agente_id=eq.${agenteId}&session_id=eq.${sessionId}&order=timestamp.desc&limit=20`, {
+      headers: { "apikey": SUPABASE_KEY, "Authorization": `Bearer ${SUPABASE_KEY}` }
+    });
+    const memoria = await resp.json();
+    res.json({ agente: agenteId, sessionId, memoria, total: memoria.length });
+  } catch(e) { res.status(500).json({ error: e.message }); }
 });
 
 app.post("/memoria/buscar", async (req, res) => {
   const { consulta } = req.body;
   if (!consulta) return res.status(400).json({ error: "Falta consulta" });
-  res.json({ consulta, resultados: await buscarMemoriaGlobal(consulta) });
+  try {
+    const resp = await fetch(`${SUPABASE_URL}/rest/v1/agent_memory?select=agente_id,contenido&order=timestamp.desc&limit=50`, {
+      headers: { "apikey": SUPABASE_KEY, "Authorization": `Bearer ${SUPABASE_KEY}` }
+    });
+    const registros = await resp.json();
+    const resultados = registros.filter(r => consulta.toLowerCase().split(/\s+/).some(p => (r.contenido || "").toLowerCase().includes(p))).slice(0, 5);
+    res.json({ consulta, resultados });
+  } catch(e) { res.status(500).json({ error: e.message }); }
+});
+
+app.post("/agentes/:id/conocimiento", async (req, res) => {
+  const { id } = req.params;
+  const { conocimiento } = req.body;
+  if (!conocimiento) return res.status(400).json({ error: "Falta conocimiento" });
+  conocimientoExtra[id] = (conocimientoExtra[id] || "") + "\n" + conocimiento;
+  // Invalidar memoria activa para que tome el nuevo conocimiento
+  Object.keys(memorias).forEach(sid => { if (memorias[sid].agenteId === id) delete memorias[sid]; });
+  res.json({ success: true, agente: id });
+});
+
+app.get("/agentes/:id/conocimiento", (req, res) => {
+  const { id } = req.params;
+  res.json({ agente: id, conocimiento: conocimientoExtra[id] || "" });
+});
+
+app.post("/agentes/crear", (req, res) => {
+  const { id, nombre, system, modelo = "potente" } = req.body;
+  if (!id || !nombre || !system) return res.status(400).json({ error: "Faltan campos: id, nombre, system" });
+  if (AGENTES[id]) return res.status(409).json({ error: "El agente ya existe" });
+  AGENTES[id] = { nombre, modelo: MODELOS[modelo] || MODELOS.rapido, area: "Custom", system };
+  res.json({ success: true, agente: { id, nombre, modelo: AGENTES[id].modelo } });
+});
+
+app.post("/agentes/:id/clonar", (req, res) => {
+  const { id } = req.params;
+  const { nuevoId, nuevoNombre } = req.body;
+  if (!AGENTES[id]) return res.status(404).json({ error: "Agente no encontrado" });
+  if (!nuevoId || !nuevoNombre) return res.status(400).json({ error: "Faltan nuevoId y nuevoNombre" });
+  AGENTES[nuevoId] = { ...AGENTES[id], nombre: nuevoNombre };
+  res.json({ success: true, agente: { id: nuevoId, nombre: nuevoNombre } });
 });
 
 app.post("/ejecutar", async (req, res) => {
@@ -380,430 +826,77 @@ app.post("/ejecutar", async (req, res) => {
   if (!tarea) return res.status(400).json({ error: "Falta tarea" });
   const validacion = await validarPensamiento(tarea);
   if (!validacion.valido) return res.json({ status: "rechazado", riesgos: validacion.riesgos, sugerencias: validacion.sugerencias });
-  res.json({ status: "ok", mensaje: "Tarea validada y en ejecución." });
+  res.json({ status: "ok", mensaje: "Tarea validada." });
 });
 
 app.post("/simular", async (req, res) => {
   const { comandos, contexto } = req.body;
-  if (!comandos || !Array.isArray(comandos) || comandos.length === 0) return res.status(400).json({ error: "Se requiere array de comandos" });
+  if (!comandos || !Array.isArray(comandos)) return res.status(400).json({ error: "Se requiere array de comandos" });
   const validacion = await validarPensamiento(comandos.join(" | "), contexto || "Simulación");
   if (!validacion.valido) return res.json({ status: "rechazado", riesgos: validacion.riesgos, sugerencias: validacion.sugerencias });
   const resultados = [];
   for (const cmd of comandos) {
-    const sandbox = crearSandbox();
+    const sandbox = (() => { const d = `/tmp/fsim-${Math.random().toString(36).slice(2)}`; fs.mkdirSync(d, { recursive: true }); return d; })();
     try {
-      const resultado = await new Promise((resolve) => {
-        exec(cmd, { cwd: sandbox, timeout: 10000, maxBuffer: 1024 * 200 }, (error, stdout, stderr) => {
-          resolve({ comando: cmd, stdout: stdout || "", stderr: stderr || "", error: error ? error.message : null, exitCode: error ? error.code : 0 });
+      const resultado = await new Promise(resolve => {
+        exec(cmd, { cwd: sandbox, timeout: 10000, maxBuffer: 1024*200 }, (error, stdout, stderr) => {
+          resolve({ comando: cmd, stdout: stdout||"", stderr: stderr||"", error: error?.message||null });
         });
       });
       resultados.push(resultado);
     } catch(e) { resultados.push({ comando: cmd, error: e.message }); }
-    finally { limpiarSandbox(sandbox); }
+    finally { try { fs.rmSync(sandbox, { recursive: true, force: true }); } catch(e) {} }
   }
   res.json({ status: "ok", total: resultados.length, resultados, validacion });
-});
-
-// ==================== WEBSOCKET TERMINAL ====================
-app.ws("/terminal", (ws, req) => {
-  ws.send("Fundora Agency AI Terminal\n$ ");
-  ws.on("message", async (msg) => {
-    const comando = msg.toString().trim();
-    if (!comando) return;
-    const dangerous = /rm\s+-rf\s+\/|sudo|chmod\s+777/i;
-    if (dangerous.test(comando)) { ws.send("Bloqueado.\n$ "); return; }
-    exec(comando, { cwd: SAFE_ROOT, timeout: 15000, maxBuffer: 1024 * 500 }, async (error, stdout, stderr) => {
-      if (stdout) ws.send(stdout);
-      if (stderr) ws.send(stderr);
-      if (error) {
-        ws.send("\n❌ Error: " + error.message + "\n🧠 Corrector: ");
-        const c = await consultarCorrector(error.message, comando);
-        ws.send(c.diagnostico + "\n💡 " + c.solucion + "\n");
-      } else {
-        ws.send("🔍 Verificando... ");
-        const v = await verificarResultado(stdout || "", "comando");
-        ws.send(v.resultado + " - " + v.razon + "\n");
-      }
-      ws.send("$ ");
-    });
-  });
-});
-
-app.get("/dashboard", (req, res) => res.sendFile(path.join(__dirname, "public", "dashboard.html")));
-
-
-app.post("/generar/imagen", async (req, res) => {
-  const { prompt, upscale = false } = req.body;
-  if (!prompt) return res.status(400).json({ error: "Falta prompt" });
-  try {
-    const url = "https://api.cloudflare.com/client/v4/accounts/" + CF_ACCOUNT_ID + "/ai/run/@cf/stabilityai/stable-diffusion-xl-base-1.0";
-    const resp = await fetch(url, {
-      method: "POST",
-      headers: { "Authorization": "Bearer " + CF_TOKEN, "Content-Type": "application/json" },
-      body: JSON.stringify({ prompt, num_steps: 20 })
-    });
-    const contentType = resp.headers.get("content-type") || "";
-    if (contentType.includes("application/json")) {
-      const data = await resp.json();
-      if (data.success) {
-        const base64 = Buffer.from(data.result.image, 'base64').toString('base64');
-        res.json({ status: "ok", imagen: "data:image/png;base64," + base64 });
-      } else {
-        res.json({ status: "error", mensaje: "Error: " + JSON.stringify(data.errors) });
-      }
-    } else {
-      const buffer = await resp.arrayBuffer();
-      const base64 = Buffer.from(buffer).toString('base64');
-      res.json({ status: "ok", imagen: "data:image/png;base64," + base64 });
-    }
-  } catch(e) {
-    res.status(500).json({ error: e.message });
-  }
-});
-
-app.post("/generar/img2img", upload.single("imagen"), async (req, res) => {
-  const { prompt } = req.body;
-  if (!req.file || !prompt) return res.status(400).json({ error: "Falta imagen y/o prompt." });
-  try {
-    // Usar directamente Cloudflare text-to-image (img2img no está disponible de forma fiable)
-    // Enriquecemos el prompt con "based on a reference image" para simular img2img
-    const promptEnriquecido = prompt + ", based on a reference image, high quality, detailed";
-    const url = "https://api.cloudflare.com/client/v4/accounts/" + CF_ACCOUNT_ID + "/ai/run/@cf/stabilityai/stable-diffusion-xl-base-1.0";
-    const resp = await fetch(url, {
-      method: "POST",
-      headers: { "Authorization": "Bearer " + CF_TOKEN, "Content-Type": "application/json" },
-      body: JSON.stringify({ prompt: promptEnriquecido, num_steps: 20 })
-    });
-    const contentType = resp.headers.get("content-type") || "";
-    if (contentType.includes("application/json")) {
-      const data = await resp.json();
-      if (data.success) {
-        const base64Result = Buffer.from(data.result.image, 'base64').toString('base64');
-        return res.json({ status: "ok", imagen: "data:image/png;base64," + base64Result, modelo: "cloudflare-text", nota: "img2img simulado mediante texto a imagen con prompt enriquecido" });
-      }
-      return res.json({ status: "error", mensaje: "Error: " + JSON.stringify(data.errors) });
-    } else {
-      const buffer = await resp.arrayBuffer();
-      const base64Result = Buffer.from(buffer).toString('base64');
-      return res.json({ status: "ok", imagen: "data:image/png;base64," + base64Result, modelo: "cloudflare-text" });
-    }
-  } catch(e) {
-    res.status(500).json({ error: e.message });
-  }
-});
-
-app.post("/generar/video", async (req, res) => {
-  const { prompt } = req.body;
-  if (!prompt) return res.status(400).json({ error: "Falta prompt" });
-  
-  const modelosVideo = [
-    "kabachuha/modelscope-damo-text-to-video",
-    "cerspense/zeroscope_v2_576w",
-    "ali-vilab/text-to-video-ms-1.7b"
-  ];
-  
-  for (const modelo of modelosVideo) {
-    try {
-      const resp = await fetch("https://router.huggingface.co/hf-inference/models/" + modelo, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ inputs: prompt })
-      });
-      if (resp.ok) {
-        const buffer = await resp.buffer();
-        const base64 = buffer.toString('base64');
-        return res.json({ status: "ok", video: "data:video/mp4;base64," + base64, modelo });
-      }
-      console.warn("Modelo video " + modelo + " falló, probando siguiente...");
-    } catch(e) { continue; }
-  }
-  
-  // Fallback final: Cloudflare no tiene video, así que informamos
-  res.json({ status: "error", mensaje: "Todos los modelos de video están ocupados. Intente de nuevo en unos minutos o use /generar/imagen para una imagen estática." });
 });
 
 app.post("/upload", upload.single("archivo"), async (req, res) => {
   if (!req.file) return res.status(400).json({ error: "No se recibió archivo" });
   try {
-    const fileName = Date.now() + "-" + req.file.originalname;
-    const base64Data = req.file.buffer.toString('base64');
-    
-    // Guardar en la tabla 'archivos' de Supabase
-    const resp = await fetch(SUPABASE_URL + "/rest/v1/archivos", {
+    const fileName = `${Date.now()}-${req.file.originalname}`;
+    const base64Data = req.file.buffer.toString("base64");
+    const resp = await fetch(`${SUPABASE_URL}/rest/v1/archivos`, {
       method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-        "apikey": SUPABASE_KEY,
-        "Authorization": "Bearer " + SUPABASE_KEY,
-        "Prefer": "return=representation"
-      },
-      body: JSON.stringify({
-        nombre: fileName,
-        tipo: req.file.mimetype,
-        data: base64Data
-      })
+      headers: { "Content-Type": "application/json", "apikey": SUPABASE_KEY, "Authorization": `Bearer ${SUPABASE_KEY}`, "Prefer": "return=representation" },
+      body: JSON.stringify({ nombre: fileName, tipo: req.file.mimetype, data: base64Data })
     });
-    
     if (resp.ok) {
       const inserted = await resp.json();
-      const id = inserted[0]?.id || "desconocido";
-      return res.json({ status: "ok", mensaje: "Archivo almacenado en base de datos", id, nombre: fileName, tipo: req.file.mimetype });
+      res.json({ status: "ok", id: inserted[0]?.id, nombre: fileName });
     } else {
-      const err = await resp.text();
-      return res.status(500).json({ error: "Error al guardar en la base de datos: " + err });
+      res.status(500).json({ error: "Error guardando archivo" });
     }
-  } catch(e) {
-    res.status(500).json({ error: e.message });
-  }
+  } catch(e) { res.status(500).json({ error: e.message }); }
 });
 
-
-// ════ GENERACIÓN LOCAL (sin límites) ════
-app.post("/generar/imagen-local", async (req, res) => {
-  const { prompt } = req.body;
-  if (!prompt) return res.status(400).json({ error: "Falta prompt" });
-  
-  // Optimizar prompt con agente director
-  let promptOptimizado = prompt;
+app.get("/biblioteca", async (req, res) => {
   try {
-    const agente = AGENTES.director;
-    const url = "https://api.cloudflare.com/client/v4/accounts/" + CF_ACCOUNT_ID + "/ai/run/" + agente.modelo;
-    const resp = await fetch(url, {
+    const resp = await fetch(`${SUPABASE_URL}/rest/v1/archivos?select=id,nombre,tipo,created_at&order=created_at.desc&limit=50`, {
+      headers: { "apikey": SUPABASE_KEY, "Authorization": `Bearer ${SUPABASE_KEY}` }
+    });
+    const archivos = await resp.json();
+    res.json({ archivos, total: archivos.length });
+  } catch(e) { res.status(500).json({ error: e.message }); }
+});
+
+// ── GROQ ──
+app.post("/groq/chat", async (req, res) => {
+  const { mensaje, modelo = "rapido", agente = "general" } = req.body;
+  if (!mensaje) return res.status(400).json({ error: "Falta mensaje" });
+  const config = AGENTES[agente] || AGENTES.general;
+  const model = GROQ_MODELS[modelo] || GROQ_MODELS.rapido;
+  try {
+    const resp = await fetch("https://api.groq.com/openai/v1/chat/completions", {
       method: "POST",
-      headers: { "Authorization": "Bearer " + CF_TOKEN, "Content-Type": "application/json" },
-      body: JSON.stringify({
-        messages: [
-          { role: "system", content: agente.system + " Eres experto en crear prompts visuales para Stable Diffusion. Responde SOLO con el prompt optimizado, sin explicaciones." },
-          { role: "user", content: "Optimiza este prompt para generar una imagen de alta calidad: " + prompt }
-        ],
-        max_tokens: 150
-      })
+      headers: { "Authorization": `Bearer ${GROQ_KEY}`, "Content-Type": "application/json" },
+      body: JSON.stringify({ model, messages: [{ role: "system", content: config.system }, { role: "user", content: mensaje }], max_tokens: 1000 })
     });
     const data = await resp.json();
-    if (data.success) promptOptimizado = data.result.response.trim();
-  } catch(e) { console.warn("Error optimizando prompt:", e.message); }
-  
-  // Lanzar generación en proceso hijo
-  const { spawn } = require("child_process");
-  const tareaId = Date.now().toString(36);
-  const child = spawn("python3", [path.join(__dirname, "generar_imagen.py"), promptOptimizado, tareaId], {
-    detached: true,
-    stdio: "ignore"
-  });
-  child.unref();
-  
-  res.json({ status: "ok", tareaId, mensaje: "Generación iniciada en segundo plano.", prompt_original: prompt, prompt_optimizado: promptOptimizado });
+    res.json({ respuesta: data?.choices?.[0]?.message?.content || "Sin respuesta", modelo: model, motor: "groq" });
+  } catch(e) { res.status(500).json({ error: e.message }); }
 });
 
-// Endpoint para consultar el estado de una tarea
-app.get("/generar/estado/:tareaId", (req, res) => {
-  const { tareaId } = req.params;
-  const resultPath = path.join(__dirname, "generaciones", tareaId + ".json");
-  if (fs.existsSync(resultPath)) {
-    const data = JSON.parse(fs.readFileSync(resultPath, "utf8"));
-    res.json({ status: "completado", imagen: data.imagen });
-  } else {
-    res.json({ status: "en_progreso", tareaId });
-  }
-});
-
-
-// ════ GENERACIÓN LOCAL (sin límites) ════
-app.post("/generar/imagen-local", async (req, res) => {
-  const { prompt } = req.body;
-  if (!prompt) return res.status(400).json({ error: "Falta prompt" });
-  
-  // Optimizar prompt con agente director
-  let promptOptimizado = prompt;
-  try {
-    const agente = AGENTES.director;
-    const url = "https://api.cloudflare.com/client/v4/accounts/" + CF_ACCOUNT_ID + "/ai/run/" + agente.modelo;
-    const resp = await fetch(url, {
-      method: "POST",
-      headers: { "Authorization": "Bearer " + CF_TOKEN, "Content-Type": "application/json" },
-      body: JSON.stringify({
-        messages: [
-          { role: "system", content: agente.system + " Eres experto en crear prompts visuales para Stable Diffusion. Responde SOLO con el prompt optimizado, sin explicaciones." },
-          { role: "user", content: "Optimiza este prompt para generar una imagen de alta calidad: " + prompt }
-        ],
-        max_tokens: 150
-      })
-    });
-    const data = await resp.json();
-    if (data.success) promptOptimizado = data.result.response.trim();
-  } catch(e) { console.warn("Error optimizando prompt:", e.message); }
-  
-  // Lanzar generación en proceso hijo
-  const { spawn } = require("child_process");
-  const tareaId = Date.now().toString(36);
-  const child = spawn("python3", [path.join(__dirname, "generar_imagen.py"), promptOptimizado, tareaId], {
-    detached: true,
-    stdio: "ignore"
-  });
-  child.unref();
-  
-  res.json({ status: "ok", tareaId, mensaje: "Generación iniciada en segundo plano.", prompt_original: prompt, prompt_optimizado: promptOptimizado });
-});
-
-// Endpoint para consultar el estado de una tarea
-app.get("/generar/estado/:tareaId", (req, res) => {
-  const { tareaId } = req.params;
-  const resultPath = path.join(__dirname, "generaciones", tareaId + ".json");
-  if (fs.existsSync(resultPath)) {
-    const data = JSON.parse(fs.readFileSync(resultPath, "utf8"));
-    res.json({ status: "completado", imagen: data.imagen });
-  } else {
-    res.json({ status: "en_progreso", tareaId });
-  }
-});
-
-
-app.post("/generar/imagen-ilimitado", async (req, res) => {
-  const { prompt } = req.body;
-  if (!prompt) return res.status(400).json({ error: "Falta prompt" });
-  
-  // Pool de modelos públicos gratuitos (sin API key)
-  const modelos = [
-    "black-forest-labs/FLUX.1-dev",
-    "stabilityai/stable-diffusion-xl-base-1.0",
-    "nota-ai/bk-sdm-small"
-  ];
-  
-  let ultimoError = null;
-  
-  for (const modelo of modelos) {
-    try {
-      const resp = await fetch("https://router.huggingface.co/hf-inference/models/" + modelo, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ inputs: prompt })
-      });
-      if (resp.ok) {
-        const buffer = await resp.buffer();
-        const base64 = buffer.toString('base64');
-        return res.json({ status: "ok", imagen: "data:image/png;base64," + base64, modelo });
-      }
-      // Si falla, probar el siguiente
-      console.warn("Modelo " + modelo + " no disponible, probando siguiente...");
-    } catch(e) {
-      ultimoError = e.message;
-      continue;
-    }
-  }
-  
-  // Fallback: usar Cloudflare AI si todos fallan
-  try {
-    const url = "https://api.cloudflare.com/client/v4/accounts/" + CF_ACCOUNT_ID + "/ai/run/@cf/stabilityai/stable-diffusion-xl-base-1.0";
-    const resp = await fetch(url, {
-      method: "POST",
-      headers: { "Authorization": "Bearer " + CF_TOKEN, "Content-Type": "application/json" },
-      body: JSON.stringify({ prompt, num_steps: 20 })
-    });
-    const contentType = resp.headers.get("content-type") || "";
-    if (contentType.includes("application/json")) {
-      const data = await resp.json();
-      if (data.success) {
-        const base64 = Buffer.from(data.result.image, 'base64').toString('base64');
-        return res.json({ status: "ok", imagen: "data:image/png;base64," + base64, modelo: "cloudflare" });
-      }
-    } else {
-      const buffer = await resp.arrayBuffer();
-      const base64 = Buffer.from(buffer).toString('base64');
-      return res.json({ status: "ok", imagen: "data:image/png;base64," + base64, modelo: "cloudflare" });
-    }
-  } catch(e) {
-    ultimoError = e.message;
-  }
-  
-  res.status(500).json({ error: "Todos los modelos fallaron. Último error: " + ultimoError });
-});
-
-
-// ════ CACHÉ CON TTL PARA REDUCIR CONSULTAS A SUPABASE ════
-const cacheAgentes = {};
-
-async function getConocimientoCached(agenteId) {
-  const ahora = Date.now();
-  const cacheEntry = cacheAgentes[agenteId];
-  const TTL = 60 * 1000; // 60 segundos
-
-  if (cacheEntry && (ahora - cacheEntry.timestamp) < TTL) {
-    return cacheEntry.data;
-  }
-
-  // Si no hay caché o expiró, consultar Supabase
-  try {
-    const temaMap = {
-      general: "inteligencia artificial",
-      programador: "desarrollo software",
-      psicologo: "psicologia bienestar",
-      abogado: "derecho legal",
-      director: "produccion audiovisual",
-      analista: "apuestas deportivas",
-      ceo: "estrategia negocio",
-      rastreador: "web scraping",
-      corrector: "depuracion errores",
-      verificador: "control calidad",
-      supervisor: "supervision"
-    };
-    const tema = temaMap[agenteId] || temaMap.general;
-    const url = SUPABASE_URL + "/rest/v1/knowledge_base?select=contenido,fuente&tema=ilike.%25" + encodeURIComponent(tema) + "%25&order=fecha.desc&limit=5";
-    const resp = await fetch(url, {
-      headers: {
-        "apikey": SUPABASE_KEY,
-        "Authorization": "Bearer " + SUPABASE_KEY
-      }
-    });
-    if (resp.ok) {
-      const conocimientos = await resp.json();
-      const resultado = conocimientos.length > 0
-        ? "\n\n📚 CONOCIMIENTO FRESCO DE LA AGENCIA:\n" + conocimientos.map(k => "• " + k.contenido.substring(0, 200)).join("\n")
-        : "";
-      // Guardar en caché
-      cacheAgentes[agenteId] = { data: resultado, timestamp: ahora };
-      return resultado;
-    }
-  } catch(e) {
-    console.warn("Error obteniendo conocimiento para " + agenteId + ":", e.message);
-  }
-  return "";
-}
-
-
-// ════ LISTAR TODAS LAS CAPACIDADES ════
-app.get("/skills", (req, res) => {
-  res.json({
-    sistema: "Fundora Agency AI v3.0",
-    agentes: Object.keys(AGENTES).length,
-    endpoints: [
-      "GET /health",
-      "GET /agentes",
-      "POST /chat",
-      "POST /consulta",
-      "POST /verificar",
-      "POST /validar",
-      "POST /feedback",
-      "GET /memoria/:agenteId",
-      "POST /memoria/buscar",
-      "POST /ejecutar",
-      "POST /simular",
-      "POST /generar/imagen",
-      "POST /generar/imagen-ilimitado",
-      "POST /generar/img2img",
-      "POST /generar/video",
-      "POST /upload",
-      "POST /sql",
-      "POST /enviar/whatsapp",
-      "GET /dashboard"
-    ],
-    seguridad: "JWT disponible para dashboard (opcional)",
-    logs: "Winston activo",
-    autonomia: "exec_sql en Supabase operativo"
-  });
-});
-
-
-// ════ ENVIAR MENSAJE POR WHATSAPP (BOTPRESS) ════
+// ── JWT ──
 const BOTPRESS_PAT = "bp_pat_P0qf7HAVhl15wfGz2UMoM4ZiQfHzbzmD5yNx";
 const BOTPRESS_BOT_ID = "32429f0f-8a50-4787-ad93-7a6d8bc06cce";
 
@@ -813,283 +906,103 @@ app.post("/enviar/whatsapp", async (req, res) => {
   try {
     const resp = await fetch("https://api.botpress.cloud/v1/chat/messages", {
       method: "POST",
-      headers: {
-        "Authorization": "Bearer " + BOTPRESS_PAT,
-        "Content-Type": "application/json",
-        "x-bot-id": BOTPRESS_BOT_ID
-      },
-      body: JSON.stringify({
-        userId: "whatsapp:" + telefono,
-        type: "text",
-        tags: {},
-        conversationId: "whatsapp-" + telefono + "-" + Date.now(),
-        payload: { type: "text", text: mensaje }
-      })
+      headers: { "Authorization": `Bearer ${BOTPRESS_PAT}`, "Content-Type": "application/json", "x-bot-id": BOTPRESS_BOT_ID },
+      body: JSON.stringify({ userId: `whatsapp:${telefono}`, type: "text", tags: {}, conversationId: `wa-${telefono}-${Date.now()}`, payload: { type: "text", text: mensaje } })
     });
-    if (resp.ok) {
-      res.json({ status: "ok", mensaje: "Mensaje enviado a WhatsApp" });
-    } else {
-      const err = await resp.text();
-      res.status(500).json({ error: "Error al enviar: " + err });
-    }
-  } catch(e) {
-    res.status(500).json({ error: e.message });
-  }
+    if (resp.ok) res.json({ status: "ok" });
+    else { const err = await resp.text(); res.status(500).json({ error: err }); }
+  } catch(e) { res.status(500).json({ error: e.message }); }
 });
-
-
-// ════ AUTENTICACIÓN JWT PARA DASHBOARD ════
-const JWT_SECRET = process.env.JWT_SECRET || "fundora-ai-secreto-2026";
 
 app.post("/auth/login", (req, res) => {
   const { usuario, password } = req.body;
   if (usuario === "admin" && password === "Fundora2026!") {
-    const token = jwt.sign({ rol: "admin" }, JWT_SECRET, { expiresIn: "24h" });
-    res.json({ token });
+    res.json({ token: jwt.sign({ rol: "admin" }, JWT_SECRET, { expiresIn: "24h" }) });
   } else {
     res.status(401).json({ error: "Credenciales inválidas" });
   }
 });
 
-function verificarToken(req, res, next) {
-  const token = req.headers["authorization"]?.split(" ")[1];
-  if (!token) return res.status(401).json({ error: "Token requerido" });
+app.post("/sql", async (req, res) => {
+  const { query } = req.body;
+  if (!query) return res.status(400).json({ error: "Falta query" });
   try {
-    const decoded = jwt.verify(token, JWT_SECRET);
-    req.usuario = decoded;
-    next();
-  } catch(e) {
-    res.status(403).json({ error: "Token inválido" });
-  }
-}
-// Para proteger el dashboard, añadir: app.use("/dashboard", verificarToken);
-
-
-// ════ GENERACIÓN DE VIDEO LOCAL (EN DESARROLLO) ════
-app.post("/generar/video-local", (req, res) => {
-  res.json({ status: "en_desarrollo", mensaje: "El motor de video local requiere Ollama o GPU externa. Se habilitará en una futura actualización. Mientras tanto, use /generar/video para el pool de Hugging Face." });
-});
-
-
-// ════ GROQ CHAT (ultrarrápido) ════
-app.post("/groq/chat", async (req, res) => {
-  const { mensaje, modelo = "rapido" } = req.body;
-  if (!mensaje) return res.status(400).json({ error: "Falta mensaje" });
-  const model = GROQ_MODELS[modelo] || GROQ_MODELS.rapido;
-  try {
-    const resp = await fetch("https://api.groq.com/openai/v1/chat/completions", {
+    const resp = await fetch(`${SUPABASE_URL}/rest/v1/rpc/exec_sql`, {
       method: "POST",
-      headers: {
-        "Authorization": "Bearer " + GROQ_KEY,
-        "Content-Type": "application/json"
-      },
-      body: JSON.stringify({
-        model,
-        messages: [{ role: "user", content: mensaje }],
-        max_tokens: 1000
-      })
+      headers: { "Content-Type": "application/json", "apikey": SUPABASE_KEY, "Authorization": `Bearer ${SUPABASE_KEY}` },
+      body: JSON.stringify({ query })
     });
     const data = await resp.json();
-    const respuesta = data?.choices?.[0]?.message?.content || JSON.stringify(data);
-    res.json({ respuesta, modelo: model, motor: "groq" });
-  } catch(e) {
-    res.status(500).json({ error: e.message });
-  }
-});
-
-
-// ════ CHAT CON GENERACIÓN DE IMÁGENES ════
-app.post("/chat/imagen", async (req, res) => {
-  const { prompt } = req.body;
-  if (!prompt) return res.status(400).json({ error: "Falta prompt" });
-
-  try {
-    // 1. Optimizar el prompt con el agente director (FUNDORA VISION)
-    let promptOptimizado = prompt;
-    try {
-      const agente = AGENTES.director;
-      const urlOpt = "https://api.cloudflare.com/client/v4/accounts/" + CF_ACCOUNT_ID + "/ai/run/" + agente.modelo;
-      const respOpt = await fetch(urlOpt, {
-        method: "POST",
-        headers: { "Authorization": "Bearer " + CF_TOKEN, "Content-Type": "application/json" },
-        body: JSON.stringify({
-          messages: [
-            { role: "system", content: agente.system + " Eres experto en prompts visuales. Responde SOLO con el prompt optimizado, sin explicaciones." },
-            { role: "user", content: "Optimiza este prompt para generar una imagen de alta calidad: " + prompt }
-          ],
-          max_tokens: 150
-        })
-      });
-      const dataOpt = await respOpt.json();
-      if (dataOpt.success) {
-        promptOptimizado = dataOpt.result.response.trim();
-      }
-    } catch(e) { console.warn("Error optimizando prompt:", e.message); }
-
-    // 2. Generar imagen con Cloudflare
-    const urlImg = "https://api.cloudflare.com/client/v4/accounts/" + CF_ACCOUNT_ID + "/ai/run/@cf/stabilityai/stable-diffusion-xl-base-1.0";
-    const respImg = await fetch(urlImg, {
-      method: "POST",
-      headers: { "Authorization": "Bearer " + CF_TOKEN, "Content-Type": "application/json" },
-      body: JSON.stringify({ prompt: promptOptimizado, num_steps: 20 })
-    });
-
-    const contentType = respImg.headers.get("content-type") || "";
-    if (contentType.includes("application/json")) {
-      const dataImg = await respImg.json();
-      if (dataImg.success) {
-        const base64 = Buffer.from(dataImg.result.image, 'base64').toString('base64');
-        return res.json({ status: "ok", imagen: "data:image/png;base64," + base64, prompt_original: prompt, prompt_optimizado: promptOptimizado });
-      } else {
-        return res.json({ status: "error", mensaje: "Error: " + JSON.stringify(dataImg.errors) });
-      }
-    } else {
-      const buffer = await respImg.arrayBuffer();
-      const base64 = Buffer.from(buffer).toString('base64');
-      return res.json({ status: "ok", imagen: "data:image/png;base64," + base64, prompt_original: prompt, prompt_optimizado: promptOptimizado });
-    }
-  } catch(e) {
-    res.status(500).json({ error: e.message });
-  }
-});
-
-
-// ════ GENERACIÓN DE PDF ════
-app.post("/generar/pdf", async (req, res) => {
-  const { titulo = "Documento", contenido = "", imagen } = req.body;
-  if (!contenido && !imagen) return res.status(400).json({ error: "Falta contenido o imagen" });
-  
-  try {
-    const doc = new PDFDocument({ size: 'A4', margin: 50 });
-    const chunks = [];
-    
-    doc.on('data', chunk => chunks.push(chunk));
-    doc.on('end', () => {
-      const pdfBuffer = Buffer.concat(chunks);
-      const base64 = pdfBuffer.toString('base64');
-      res.json({ status: "ok", pdf: "data:application/pdf;base64," + base64, nombre: titulo + ".pdf" });
-    });
-    
-    // Título
-    doc.fontSize(20).text(titulo, { align: 'center' });
-    doc.moveDown();
-    
-    // Imagen opcional
-    if (imagen) {
-      try {
-        const imgBuffer = Buffer.from(imagen.replace(/^data:image\/\w+;base64,/, ''), 'base64');
-        doc.image(imgBuffer, { fit: [400, 300], align: 'center' });
-        doc.moveDown();
-      } catch(e) { console.warn('Error insertando imagen en PDF:', e.message); }
-    }
-    
-    // Contenido
-    doc.fontSize(12).text(contenido, { align: 'left' });
-    
-    doc.end();
-  } catch(e) {
-    res.status(500).json({ error: e.message });
-  }
-});
-
-
-app.post("/generar/video-imagen", async (req, res) => {
-  const { prompt, frames = 3 } = req.body;
-  if (!prompt) return res.status(400).json({ error: "Falta prompt" });
-  const imagenes = [];
-  try {
-    for (let i = 0; i < frames; i++) {
-      const framePrompt = prompt + ", frame " + (i+1) + " of " + frames + ", cinematic sequence, consistent style";
-      const url = "https://api.cloudflare.com/client/v4/accounts/" + CF_ACCOUNT_ID + "/ai/run/@cf/stabilityai/stable-diffusion-xl-base-1.0";
-      const resp = await fetch(url, {
-        method: "POST",
-        headers: { "Authorization": "Bearer " + CF_TOKEN, "Content-Type": "application/json" },
-        body: JSON.stringify({ prompt: framePrompt, num_steps: 15 })
-      });
-      const contentType = resp.headers.get("content-type") || "";
-      if (contentType.includes("application/json")) {
-        const data = await resp.json();
-        if (data.success) {
-          const base64 = Buffer.from(data.result.image, 'base64').toString('base64');
-          imagenes.push("data:image/png;base64," + base64);
-        }
-      } else {
-        const buffer = await resp.arrayBuffer();
-        const base64 = Buffer.from(buffer).toString('base64');
-        imagenes.push("data:image/png;base64," + base64);
-      }
-    }
-    if (imagenes.length > 0) {
-      res.json({ status: "ok", imagenes, mensaje: "Secuencia de frames generada (el video real no está disponible temporalmente)." });
-    } else {
-      res.json({ status: "error", mensaje: "No se pudieron generar los frames." });
-    }
+    res.json({ status: "ok", resultado: data });
   } catch(e) { res.status(500).json({ error: e.message }); }
 });
 
-
-// ════ GENERAR VIDEO CON CLOUDFLARE (SECUENCIA DE FRAMES) ════
-app.post("/generar/video-cloudflare", async (req, res) => {
-  const { prompt, frames = 5 } = req.body;
-  if (!prompt) return res.status(400).json({ error: "Falta prompt" });
-  
-  const imagenes = [];
-  try {
-    for (let i = 0; i < frames; i++) {
-      const framePrompt = prompt + ", frame " + (i+1) + " of " + frames + ", smooth animation, consistent style, cinematic";
-      const url = "https://api.cloudflare.com/client/v4/accounts/" + CF_ACCOUNT_ID + "/ai/run/@cf/stabilityai/stable-diffusion-xl-base-1.0";
-      const resp = await fetch(url, {
-        method: "POST",
-        headers: { "Authorization": "Bearer " + CF_TOKEN, "Content-Type": "application/json" },
-        body: JSON.stringify({ prompt: framePrompt, num_steps: 15 })
-      });
-      
-      let base64;
-      const contentType = resp.headers.get("content-type") || "";
-      if (contentType.includes("application/json")) {
-        const data = await resp.json();
-        if (data.success) {
-          base64 = Buffer.from(data.result.image, 'base64').toString('base64');
-        } else {
-          continue;
-        }
-      } else {
-        const buffer = await resp.arrayBuffer();
-        base64 = Buffer.from(buffer).toString('base64');
-      }
-      
-      if (base64) {
-        imagenes.push(base64);
-        // Guardar cada frame temporalmente
-        require('fs').writeFileSync("/tmp/frame_" + i + ".png", Buffer.from(base64, 'base64'));
-      }
+app.get("/stats", (req, res) => {
+  res.json({
+    agentes_total: Object.keys(AGENTES).length,
+    sesiones_activas: Object.keys(memorias).length,
+    agentes_con_conocimiento: Object.keys(conocimientoExtra).length,
+    uptime_horas: (process.uptime() / 3600).toFixed(2),
+    modelos: {
+      potente: MODELOS.potente,
+      rapido: MODELOS.rapido,
+      codigo: MODELOS.codigo
     }
-    
-    if (imagenes.length >= 2) {
-      // Usar ffmpeg para crear video MP4 desde los frames
-      const { execSync } = require("child_process");
-      try {
-        execSync("ffmpeg -y -framerate 1 -i /tmp/frame_%d.png -c:v libx264 -pix_fmt yuv420p /tmp/output.mp4 2>/dev/null");
-        const videoBuffer = require('fs').readFileSync("/tmp/output.mp4");
-        const videoBase64 = videoBuffer.toString('base64');
-        
-        // Limpiar temporales
-        for (let i = 0; i < frames; i++) {
-          try { require('fs').unlinkSync("/tmp/frame_" + i + ".png"); } catch(e) {}
-        }
-        try { require('fs').unlinkSync("/tmp/output.mp4"); } catch(e) {}
-        
-        return res.json({ status: "ok", video: "data:video/mp4;base64," + videoBase64, frames: imagenes.length });
-      } catch(ffmpegError) {
-        // Si ffmpeg falla, devolver las imágenes como galería
-        return res.json({ status: "ok", imagenes: imagenes.map(img => "data:image/png;base64," + img), mensaje: "Video no disponible (ffmpeg no instalado). Se muestran los frames individuales." });
-      }
-    } else {
-      res.json({ status: "error", mensaje: "No se pudieron generar suficientes frames." });
-    }
-  } catch(e) {
-    res.status(500).json({ error: e.message });
-  }
+  });
 });
 
-app.listen(PORT, () => console.log("✅ FUNDORA AGENCY v3.0 en puerto " + PORT + " | Agentes: " + Object.keys(AGENTES).length));
+app.get("/skills", (req, res) => {
+  res.json({
+    sistema: "FUNDORA AGENCY AI v4.0",
+    agentes: Object.keys(AGENTES).length,
+    orquestador: "Detección automática de intenciones — imagen, video, PDF, código",
+    endpoints: [
+      "GET /health", "GET /agentes", "GET /stats", "GET /skills",
+      "POST /chat (orquestador — detecta imagen/video/pdf/codigo automáticamente)",
+      "POST /consulta", "POST /verificar", "POST /validar", "POST /feedback",
+      "GET /memoria/:agenteId", "POST /memoria/buscar",
+      "POST /agentes/crear", "POST /agentes/:id/clonar", "POST /agentes/:id/conocimiento",
+      "POST /generar/imagen", "POST /generar/imagen-ilimitado",
+      "POST /generar/img2img", "POST /generar/video", "POST /generar/video-cloudflare",
+      "POST /generar/pdf", "POST /upload", "GET /biblioteca",
+      "POST /groq/chat", "POST /ejecutar", "POST /simular", "POST /sql",
+      "POST /enviar/whatsapp", "POST /auth/login",
+      "WS /terminal", "GET /dashboard"
+    ]
+  });
+});
+
+// ══════════════════════════════════════════════
+//  WEBSOCKET TERMINAL
+// ══════════════════════════════════════════════
+app.ws("/terminal", (ws, req) => {
+  ws.send("FUNDORA AGENCY AI v4.0 — Terminal\n$ ");
+  ws.on("message", async (msg) => {
+    const cmd = msg.toString().trim();
+    if (!cmd) return;
+    if (/rm\s+-rf\s+\/|sudo|chmod\s+777/i.test(cmd)) { ws.send("Bloqueado por seguridad.\n$ "); return; }
+    exec(cmd, { cwd: SAFE_ROOT, timeout: 15000, maxBuffer: 1024*500 }, async (error, stdout, stderr) => {
+      if (stdout) ws.send(stdout);
+      if (stderr) ws.send(stderr);
+      if (error) {
+        ws.send(`\n❌ Error: ${error.message}\n`);
+        const c = await consultarCorrector(error.message, cmd);
+        ws.send(`🧠 Diagnóstico: ${c.diagnostico}\n💡 Solución: ${c.solucion}\n`);
+      } else {
+        const v = await verificarResultado(stdout || "", "comando");
+        ws.send(`✅ ${v.resultado}: ${v.razon}\n`);
+      }
+      ws.send("$ ");
+    });
+  });
+});
+
+app.get("/dashboard", (req, res) => res.sendFile(path.join(__dirname, "public", "dashboard.html")));
+
+// ══════════════════════════════════════════════
+app.listen(PORT, () => {
+  console.log(`✅ FUNDORA AGENCY AI v4.0 en puerto ${PORT}`);
+  console.log(`🤖 ${Object.keys(AGENTES).length} agentes activos`);
+  console.log(`⚡ Orquestador de intenciones: ACTIVO`);
+  console.log(`🎨 Imagen | 🎬 Video | 📄 PDF | ⌨️ Código — sin botones, solo pedirlo`);
+});

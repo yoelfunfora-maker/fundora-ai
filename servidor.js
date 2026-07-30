@@ -46,6 +46,12 @@ const SAFE_ROOT = path.join(os.homedir(), "fundora-ai");
 
 // ==================== AGENTES ====================
 const AGENTES = {
+  financiero:  { nombre: "FUNDORA FINANCE",  modelo: "potente",  system: "Eres un experto financiero senior con 20 anos de experiencia en banca internacional, inversiones, contabilidad y finanzas corporativas para negocios del Caribe y Latinoamerica. Operas en USD. Conoces los costos de importacion TCI, margenes, proyecciones. Respondes como CFO senior, directo y con datos concretos. Siempre en espanol." },
+  medico:      { nombre: "FUNDORA HEALTH",  modelo: "potente",  system: "Eres un asistente medico experto en medicina general, nutricion clinica y salud ocupacional. SIEMPRE adviertes que no reemplazas a un medico. Respondes en espanol con empatia y precision cientifica." },
+  marketing:   { nombre: "FUNDORA MARKET",  modelo: "potente",  system: "Experto en marketing digital para negocios caribenos y latinoamericanos. Dominas Instagram, Facebook, WhatsApp Business, copywriting y estrategia de marca. Temporada alta TCI noviembre-abril. Respondes en espanol con estrategias accionables." },
+  ecommerce:   { nombre: "FUNDORA SHOP",    modelo: "potente",  system: "Especialista en marketplace y comercio digital. Contexto PAS: productos americanos entregados en TCI via Miami. Flete aereo 3-5 dias, maritimo 7-14 dias. Arancel 0-45%. Objetivo: ser el Amazon del Caribe. Respondes en espanol." },
+  turismo:     { nombre: "FUNDORA TRAVEL",  modelo: "rapido",   system: "Experto en Turks and Caicos Islands y turismo caribeno. Providenciales es el hub comercial. Grace Bay top 10 playas mundiales. 1.5M visitantes/ano. Temporada alta diciembre-abril. Respondes en espanol." },
+  rrhh:        { nombre: "FUNDORA HR",      modelo: "rapido",   system: "Experto en recursos humanos, gestion de equipos, contratacion y cultura organizacional para empresas del Caribe. Respondes en espanol con soluciones practicas para PYMEs." },
   rastreador: {
     nombre: "Rastreador Inteligente",
     modelo: "@cf/meta/llama-3.1-8b-instruct",
@@ -247,6 +253,42 @@ app.use((req, res, next) => {
 app.use(express.static("public"));
 
 // ==================== ENDPOINTS ====================
+// ════ CONOCIMIENTO POR AGENTE ════
+const conocimientoAgentes = {};
+
+app.post("/agentes/:id/conocimiento", function(req, res) {
+  const { id } = req.params;
+  const { conocimiento } = req.body;
+  if (!conocimiento) return res.status(400).json({ error: "conocimiento requerido" });
+  if (!conocimientoAgentes[id]) conocimientoAgentes[id] = [];
+  conocimientoAgentes[id].push(conocimiento);
+  if (AGENTES[id]) {
+    AGENTES[id].system = AGENTES[id].system + "\n\nCONOCIMIENTO ADICIONAL: " + conocimiento;
+  }
+  res.json({ success: true, mensaje: "Conocimiento agregado a " + (AGENTES[id]?.nombre || id) });
+});
+
+app.get("/agentes/:id/conocimiento", function(req, res) {
+  const { id } = req.params;
+  res.json({ agente: id, conocimiento: conocimientoAgentes[id] || [] });
+});
+
+app.post("/agentes/crear", function(req, res) {
+  const { id, nombre, system, modelo } = req.body;
+  if (!id || !nombre || !system) return res.status(400).json({ error: "id, nombre y system requeridos" });
+  AGENTES[id] = { nombre, modelo: modelo || "rapido", system };
+  res.json({ success: true, mensaje: "Agente " + nombre + " creado.", id });
+});
+
+app.post("/agentes/:id/clonar", function(req, res) {
+  const { id } = req.params;
+  const { nuevoId, nuevoNombre } = req.body;
+  if (!AGENTES[id]) return res.status(404).json({ error: "Agente no encontrado" });
+  if (!nuevoId || !nuevoNombre) return res.status(400).json({ error: "nuevoId y nuevoNombre requeridos" });
+  AGENTES[nuevoId] = { ...AGENTES[id], nombre: nuevoNombre };
+  res.json({ success: true, mensaje: nuevoNombre + " clonado de " + id });
+});
+
 app.get("/health", (req, res) => {
   res.json({ status: "online", nombre: "FUNDORA AGENCY", version: "3.0", agentes: Object.keys(AGENTES).length, uptime: process.uptime() });
 });

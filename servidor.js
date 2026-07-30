@@ -46,12 +46,6 @@ const SAFE_ROOT = path.join(os.homedir(), "fundora-ai");
 
 // ==================== AGENTES ====================
 const AGENTES = {
-  financiero:  { nombre: "FUNDORA FINANCE",  modelo: "potente",  system: "Eres un experto financiero senior con 20 anos de experiencia en banca internacional, inversiones, contabilidad y finanzas corporativas para negocios del Caribe y Latinoamerica. Operas en USD. Conoces los costos de importacion TCI, margenes, proyecciones. Respondes como CFO senior, directo y con datos concretos. Siempre en espanol." },
-  medico:      { nombre: "FUNDORA HEALTH",  modelo: "potente",  system: "Eres un asistente medico experto en medicina general, nutricion clinica y salud ocupacional. SIEMPRE adviertes que no reemplazas a un medico. Respondes en espanol con empatia y precision cientifica." },
-  marketing:   { nombre: "FUNDORA MARKET",  modelo: "potente",  system: "Experto en marketing digital para negocios caribenos y latinoamericanos. Dominas Instagram, Facebook, WhatsApp Business, copywriting y estrategia de marca. Temporada alta TCI noviembre-abril. Respondes en espanol con estrategias accionables." },
-  ecommerce:   { nombre: "FUNDORA SHOP",    modelo: "potente",  system: "Especialista en marketplace y comercio digital. Contexto PAS: productos americanos entregados en TCI via Miami. Flete aereo 3-5 dias, maritimo 7-14 dias. Arancel 0-45%. Objetivo: ser el Amazon del Caribe. Respondes en espanol." },
-  turismo:     { nombre: "FUNDORA TRAVEL",  modelo: "rapido",   system: "Experto en Turks and Caicos Islands y turismo caribeno. Providenciales es el hub comercial. Grace Bay top 10 playas mundiales. 1.5M visitantes/ano. Temporada alta diciembre-abril. Respondes en espanol." },
-  rrhh:        { nombre: "FUNDORA HR",      modelo: "rapido",   system: "Experto en recursos humanos, gestion de equipos, contratacion y cultura organizacional para empresas del Caribe. Respondes en espanol con soluciones practicas para PYMEs." },
   rastreador: {
     nombre: "Rastreador Inteligente",
     modelo: "@cf/meta/llama-3.1-8b-instruct",
@@ -75,7 +69,7 @@ const AGENTES = {
   general: {
     nombre: "FUNDORA AI",
     modelo: "@cf/meta/llama-3.3-70b-instruct-fp8-fast",
-    system: "Eres FUNDORA AI, el asistente central de la agencia Fundora Prime Atlantic LLC. Eres cálido, empático y motivador, como un amigo experto en tecnología. Tienes acceso a generacion de imagenes (Cloudflare, Hugging Face), generacion de video (pool Hugging Face), subida de archivos, y una terminal WebSocket. Coordinas a 11 agentes especializados. Cuando un usuario pida una imagen o video, dile que puedes generarlo y pregúntale si quiere que lo hagas. NO digas que no puedes. Siempre ofrece usar los endpoints multimedia. Usa emojis con moderación y un tono positivo y alentador."
+    system: "Eres FUNDORA AI, el asistente central de la agencia Fundora Prime Atlantic LLC. Tienes acceso a generacion de imagenes (con Cloudflare y Hugging Face), generacion de video (pool de modelos Hugging Face), subida de archivos, y una terminal WebSocket. Puedes coordinar a los 11 agentes especializados (programador, analista, CEO, rastreador, corrector, verificador, supervisor, etc.). Cuando un usuario te pida una imagen, dile que puedes generarla y preguntale si quiere que lo hagas. NO digas que no puedes generar imagenes o videos. Siempre ofrece usar los endpoints multimedia disponibles."
   },
   programador: {
     nombre: "FUNDORA DEV",
@@ -85,7 +79,7 @@ const AGENTES = {
   psicologo: {
     nombre: "FUNDORA MIND",
     modelo: "@cf/meta/llama-3.3-70b-instruct-fp8-fast",
-    system: "Eres FUNDORA MIND, especialista en psicologia y bienestar digital. Tu tono es cálido, comprensivo y alentador. Ayudas a los usuarios a sentirse bien, motivados y productivos. Usas empatía y escucha activa. Recomiendas pausas, ejercicios mentales y buenas prácticas digitales. Eres un coach de bienestar."
+    system: "Eres FUNDORA MIND, especialista en psicologia y bienestar digital."
   },
   abogado: {
     nombre: "FUNDORA LEX",
@@ -105,7 +99,7 @@ const AGENTES = {
   ceo: {
     nombre: "CEO Fundora Prime",
     modelo: "@cf/meta/llama-3.3-70b-instruct-fp8-fast",
-    system: "Eres el CEO de Fundora Agency AI, un clon digital de Yoel Fundora. Conoces Fundora AI, reglas de negocio, independencia tecnológica."
+    system: "Eres el CEO de Fundora Agency AI, un clon digital de Yoel Fundora. Conoces BetGroup, Fundora AI, reglas de negocio, independencia tecnológica."
   }
 };
 
@@ -232,19 +226,6 @@ function limpiarSandbox(dir) {
 // ==================== MIDDLEWARE ====================
 app.use(express.json());
 
-// ════ AUTENTICACIÓN POR API KEY (RECOMENDADO POR PROGRAMADOR) ════
-const API_KEYS = (process.env.API_KEYS || "fundora-admin-key-2026").split(",");
-function verificarApiKey(req, res, next) {
-    const key = req.headers["x-api-key"];
-    if (!key || !API_KEYS.includes(key)) return res.status(403).json({ error: "API Key inválida. Obtén una en /auth/login." });
-    next();
-}
-// Proteger rutas sensibles
-app.use("/admin", verificarApiKey);
-app.use("/ejecutar", verificarApiKey);
-app.use("/sql", verificarApiKey);
-
-
 app.use((req, res, next) => {
   logger.info(`${req.method} ${req.path}`);
   next();
@@ -253,42 +234,6 @@ app.use((req, res, next) => {
 app.use(express.static("public"));
 
 // ==================== ENDPOINTS ====================
-// ════ CONOCIMIENTO POR AGENTE ════
-const conocimientoAgentes = {};
-
-app.post("/agentes/:id/conocimiento", function(req, res) {
-  const { id } = req.params;
-  const { conocimiento } = req.body;
-  if (!conocimiento) return res.status(400).json({ error: "conocimiento requerido" });
-  if (!conocimientoAgentes[id]) conocimientoAgentes[id] = [];
-  conocimientoAgentes[id].push(conocimiento);
-  if (AGENTES[id]) {
-    AGENTES[id].system = AGENTES[id].system + "\n\nCONOCIMIENTO ADICIONAL: " + conocimiento;
-  }
-  res.json({ success: true, mensaje: "Conocimiento agregado a " + (AGENTES[id]?.nombre || id) });
-});
-
-app.get("/agentes/:id/conocimiento", function(req, res) {
-  const { id } = req.params;
-  res.json({ agente: id, conocimiento: conocimientoAgentes[id] || [] });
-});
-
-app.post("/agentes/crear", function(req, res) {
-  const { id, nombre, system, modelo } = req.body;
-  if (!id || !nombre || !system) return res.status(400).json({ error: "id, nombre y system requeridos" });
-  AGENTES[id] = { nombre, modelo: modelo || "rapido", system };
-  res.json({ success: true, mensaje: "Agente " + nombre + " creado.", id });
-});
-
-app.post("/agentes/:id/clonar", function(req, res) {
-  const { id } = req.params;
-  const { nuevoId, nuevoNombre } = req.body;
-  if (!AGENTES[id]) return res.status(404).json({ error: "Agente no encontrado" });
-  if (!nuevoId || !nuevoNombre) return res.status(400).json({ error: "nuevoId y nuevoNombre requeridos" });
-  AGENTES[nuevoId] = { ...AGENTES[id], nombre: nuevoNombre };
-  res.json({ success: true, mensaje: nuevoNombre + " clonado de " + id });
-});
-
 app.get("/health", (req, res) => {
   res.json({ status: "online", nombre: "FUNDORA AGENCY", version: "3.0", agentes: Object.keys(AGENTES).length, uptime: process.uptime() });
 });
@@ -487,35 +432,14 @@ app.get("/dashboard", (req, res) => res.sendFile(path.join(__dirname, "public", 
 
 
 app.post("/generar/imagen", async (req, res) => {
-  const { prompt, upscale = false, resolucion = "1080p", aspecto = "auto" } = req.body;
+  const { prompt, upscale = false } = req.body;
   if (!prompt) return res.status(400).json({ error: "Falta prompt" });
-
-  // Calcular dimensiones según resolución y aspecto
-  const resoluciones = {
-    "480p": 480,
-    "720p": 720,
-    "1080p": 1080,
-    "2k": 1440,
-    "4k": 2160,
-    "8k": 4320
-  };
-  const base = resoluciones[resolucion] || 1024;
-  let width = base;
-  let height = base;
-
-  if (aspecto === "16:9") { width = Math.round(base * 16/9); height = base; }
-  else if (aspecto === "9:16") { width = base; height = Math.round(base * 16/9); }
-  else if (aspecto === "4:3") { width = Math.round(base * 4/3); height = base; }
-  else if (aspecto === "3:4") { width = base; height = Math.round(base * 4/3); }
-  else if (aspecto === "1:1") { width = base; height = base; }
-  // "auto" mantiene base x base (el modelo decide)
-
   try {
     const url = "https://api.cloudflare.com/client/v4/accounts/" + CF_ACCOUNT_ID + "/ai/run/@cf/stabilityai/stable-diffusion-xl-base-1.0";
     const resp = await fetch(url, {
       method: "POST",
       headers: { "Authorization": "Bearer " + CF_TOKEN, "Content-Type": "application/json" },
-      body: JSON.stringify({ prompt, num_steps: 20, width, height })
+      body: JSON.stringify({ prompt, num_steps: 20 })
     });
     const contentType = resp.headers.get("content-type") || "";
     if (contentType.includes("application/json")) {
@@ -1062,56 +986,6 @@ app.post("/generar/pdf", async (req, res) => {
     doc.fontSize(12).text(contenido, { align: 'left' });
     
     doc.end();
-  } catch(e) {
-    res.status(500).json({ error: e.message });
-  }
-});
-
-
-app.post("/betgroup/odds", async (req, res) => {
-    const { sport = "soccer_epl" } = req.body;
-    try {
-        const resp = await fetch(`https://api.the-odds-api.com/v4/sports/${sport}/odds?apiKey=e18abd8956512f34027f0ac3f87fbe52&markets=h2h&regions=us`);
-        const data = await resp.json();
-        res.json({ status: "ok", data });
-    } catch(e) { res.status(500).json({ error: e.message }); }
-});
-
-
-// ════ SISTEMA DE SUSCRIPCIÓN (RECOMENDADO POR CEO) ════
-app.post("/suscripcion", async (req, res) => {
-    const { plan = "gratuito" } = req.body;
-    const planes = {
-        gratuito: { precio: 0, limites: { imagenes: 10, videos: 2, pdfs: 5 } },
-        pro: { precio: 9.99, limites: { imagenes: 100, videos: 20, pdfs: 50 } },
-        enterprise: { precio: 49.99, limites: { imagenes: 1000, videos: 200, pdfs: 500 } }
-    };
-    const datos = planes[plan] || planes.gratuito;
-    // Guardar en Supabase
-    await fetch(SUPABASE_URL + "/rest/v1/suscripciones", {
-        method: "POST",
-        headers: { "Content-Type": "application/json", "apikey": SUPABASE_KEY, "Authorization": "Bearer " + SUPABASE_KEY },
-        body: JSON.stringify({ plan, ...datos, fecha: new Date().toISOString() })
-    });
-    res.json({ status: "ok", plan, datos });
-});
-
-
-// ════ BIBLIOTECA DE CREACIONES ════
-app.get("/biblioteca", async (req, res) => {
-  try {
-    const resp = await fetch(SUPABASE_URL + "/rest/v1/creaciones?select=*&order=fecha.desc&limit=50", {
-      headers: {
-        "apikey": SUPABASE_KEY,
-        "Authorization": "Bearer " + SUPABASE_KEY
-      }
-    });
-    if (resp.ok) {
-      const data = await resp.json();
-      res.json({ status: "ok", creaciones: data });
-    } else {
-      res.status(500).json({ error: "Error al obtener biblioteca" });
-    }
   } catch(e) {
     res.status(500).json({ error: e.message });
   }

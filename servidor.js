@@ -383,6 +383,65 @@ async function guardarMemoria(agenteId, sessionId, tipo, contenido) {
 }
 
 // ══════════════════════════════════════════════
+//  CONVERSACIONES (memoria persistente + menú lateral)
+//  Cada chat se guarda como un hilo navegable en Supabase
+// ══════════════════════════════════════════════
+const SUPA = () => ({ "Content-Type": "application/json", "apikey": SUPABASE_KEY, "Authorization": `Bearer ${SUPABASE_KEY}` });
+
+// Crear una conversación nueva → devuelve el registro (con su id)
+async function crearConversacion(usuario, titulo, agente) {
+  const resp = await fetch(`${SUPABASE_URL}/rest/v1/conversaciones`, {
+    method: "POST",
+    headers: { ...SUPA(), "Prefer": "return=representation" },
+    body: JSON.stringify({ usuario: usuario || "yoel", titulo: (titulo || "Nueva conversación").slice(0, 80), agente: agente || "general" })
+  });
+  const data = await resp.json();
+  return Array.isArray(data) ? data[0] : data;
+}
+
+// Listar conversaciones de un usuario (lo que se ve en el menú lateral)
+async function listarConversaciones(usuario) {
+  const filtro = usuario ? `&usuario=eq.${encodeURIComponent(usuario)}` : "";
+  const resp = await fetch(`${SUPABASE_URL}/rest/v1/conversaciones?select=id,titulo,agente,creada_en,actualizada_en&order=actualizada_en.desc&limit=100${filtro}`, { headers: SUPA() });
+  return await resp.json();
+}
+
+// Cargar una conversación completa con sus mensajes en orden
+async function cargarConversacion(id) {
+  const [c, m] = await Promise.all([
+    fetch(`${SUPABASE_URL}/rest/v1/conversaciones?id=eq.${id}&select=*`, { headers: SUPA() }),
+    fetch(`${SUPABASE_URL}/rest/v1/mensajes?conversacion_id=eq.${id}&select=*&order=creado_en.asc`, { headers: SUPA() })
+  ]);
+  const conv = await c.json();
+  const mensajes = await m.json();
+  return { conversacion: Array.isArray(conv) ? conv[0] : conv, mensajes };
+}
+
+// Guardar un mensaje dentro de una conversación y refrescar su fecha (para que suba en el menú)
+async function guardarMensaje(conversacionId, rol, contenido, artefactos, pasos) {
+  await fetch(`${SUPABASE_URL}/rest/v1/mensajes`, {
+    method: "POST", headers: SUPA(),
+    body: JSON.stringify({ conversacion_id: conversacionId, rol, contenido: contenido || "", artefactos: artefactos || null, pasos: pasos || null })
+  });
+  await fetch(`${SUPABASE_URL}/rest/v1/conversaciones?id=eq.${conversacionId}`, {
+    method: "PATCH", headers: SUPA(),
+    body: JSON.stringify({ actualizada_en: new Date().toISOString() })
+  });
+}
+
+// Renombrar una conversación
+async function renombrarConversacion(id, titulo) {
+  await fetch(`${SUPABASE_URL}/rest/v1/conversaciones?id=eq.${id}`, {
+    method: "PATCH", headers: SUPA(), body: JSON.stringify({ titulo: (titulo || "").slice(0, 80) })
+  });
+}
+
+// Borrar una conversación (sus mensajes se borran solos por el ON DELETE CASCADE)
+async function borrarConversacion(id) {
+  await fetch(`${SUPABASE_URL}/rest/v1/conversaciones?id=eq.${id}`, { method: "DELETE", headers: SUPA() });
+}
+
+// ══════════════════════════════════════════════
 //  GENERADORES (usados por el orquestador)
 // ══════════════════════════════════════════════
 async function generarImagen(prompt) {
@@ -972,21 +1031,78 @@ app.post("/chat", async (req, res) => {
 //  /agente — MOTOR DE HERRAMIENTAS (razona y ejecuta)
 // ══════════════════════════════════════════════
 app.post("/agente", async (req, res) => {
-  const { mensaje, agente = "general" } = req.body;
+  const { mensaje, agente = "general", conversacion_id, usuario } = req.body;
   if (!mensaje) return res.status(400).json({ error: "Falta mensaje" });
   try {
+    // Gestionar la conversación: si no viene id, crear una nueva con título automático
+    let convId = conversacion_id;
+    let convNueva = null;
+    try {
+      if (!convId) {
+        convNueva = await crearConversacion(usuario, mensaje, agente);
+        convId = convNueva?.id;
+      }
+      if (convId) await guardarMensaje(convId, "user", mensaje, null, null);
+    } catch(e) { logger.error("No se pudo guardar conversación: " + e.message); }
+
+    // Ejecutar el motor de herramientas
     const r = await ejecutarConHerramientas(mensaje, agente);
+
+    // Guardar la respuesta del agente (artefactos livianos: solo metadata, no el base64 pesado)
+    try {
+      if (convId) {
+        const artefactosLiv = (r.artefactos || []).map(a => ({ tipo: a.tipo, nombre: a.nombre || null }));
+        await guardarMensaje(convId, "assistant", r.respuesta, artefactosLiv, r.pasos);
+      }
+    } catch(e) { logger.error("No se pudo guardar respuesta: " + e.message); }
+
     res.json({
+      conversacion_id: convId,     // el frontend lo reutiliza para seguir el hilo
       agente: (AGENTES[agente] || AGENTES.general).nombre,
       respuesta: r.respuesta,
-      pasos: r.pasos,           // traza: qué herramientas usó
-      artefactos: r.artefactos, // imágenes/audio/video/pdf generados
+      pasos: r.pasos,
+      artefactos: r.artefactos,
       total_pasos: r.pasos.length
     });
   } catch(e) {
     logger.error("Error /agente: " + e.message);
     res.status(500).json({ error: e.message });
   }
+});
+
+// ══════════════════════════════════════════════
+//  MENÚ LATERAL — conversaciones guardadas
+// ══════════════════════════════════════════════
+// Listar conversaciones (para pintar el menú lateral)
+app.get("/conversaciones", async (req, res) => {
+  try { res.json(await listarConversaciones(req.query.usuario)); }
+  catch(e) { res.status(500).json({ error: e.message }); }
+});
+
+// Crear conversación vacía (botón "nueva conversación")
+app.post("/conversaciones", async (req, res) => {
+  try {
+    const { usuario, titulo, agente } = req.body;
+    res.json(await crearConversacion(usuario, titulo, agente));
+  } catch(e) { res.status(500).json({ error: e.message }); }
+});
+
+// Abrir una conversación con todos sus mensajes
+app.get("/conversaciones/:id", async (req, res) => {
+  try { res.json(await cargarConversacion(req.params.id)); }
+  catch(e) { res.status(500).json({ error: e.message }); }
+});
+
+// Renombrar una conversación
+app.patch("/conversaciones/:id", async (req, res) => {
+  try { await renombrarConversacion(req.params.id, req.body.titulo); res.json({ ok: true }); }
+  catch(e) { res.status(500).json({ error: e.message }); }
+});
+
+// Borrar una conversación
+app.delete("/conversaciones/:id", async (req, res) => {
+  try { await borrarConversacion(req.params.id); res.json({ ok: true }); }
+  catch(e) { res.status(500).json({ error: e.message }); }
 });
 
 // ══════════════════════════════════════════════

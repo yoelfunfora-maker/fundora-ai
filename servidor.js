@@ -28,7 +28,7 @@ const expressWs = require("express-ws")(app);
 // ══════════════════════════════════════════════
 const PORT = process.env.PORT || 3000;
 const SUPABASE_URL = "https://vmjmiabxjmcrovnirbkj.supabase.co";
-const SUPABASE_KEY = process.env.SUPABASE_ANON_KEY || "";
+const SUPABASE_KEY = process.env.SUPABASE_KEY || process.env.SUPABASE_ANON_KEY || "";
 const CF_ACCOUNT_ID = process.env.CF_ACCOUNT_ID || "";
 const CF_TOKEN = process.env.CF_TOKEN || "";
 const GROQ_KEY = process.env.GROQ_KEY || "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";

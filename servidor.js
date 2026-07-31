@@ -432,13 +432,24 @@ async function generarImagen(prompt) {
 }
 
 // ── AUDIO: Texto → Voz (MeloTTS) ──
-async function generarAudio(texto, lang = "es") {
+async function generarAudio(texto, lang = "ES") {
   const url = `https://api.cloudflare.com/client/v4/accounts/${CF_ACCOUNT_ID}/ai/run/${MODELOS.audio_tts}`;
   // Limpiar el texto: MeloTTS no maneja bien textos muy largos o con muchos símbolos
   const textoLimpio = texto.replace(/[#*`_>]/g, "").slice(0, 500).trim();
 
+  // MeloTTS de Cloudflare exige códigos EXACTOS e inconsistentes:
+  // español = "ES" (mayúscula), inglés = "en" (minúscula), francés = "FR", etc.
+  // Este mapa normaliza cualquier forma de escribir el idioma al código correcto.
+  const MAPA_IDIOMA = {
+    es: "ES", "es-es": "ES", "es-mx": "ES", espanol: "ES", "español": "ES", spanish: "ES",
+    en: "en", "en-us": "en", english: "en", ingles: "en", "inglés": "en",
+    fr: "FR", french: "FR", "francés": "FR",
+    zh: "ZH", jp: "JP", ja: "JP", kr: "KR", ko: "KR"
+  };
+  const codigo = MAPA_IDIOMA[(lang || "ES").toLowerCase()] || "ES";
+
   // Intentar con el idioma pedido; si Cloudflare lo rechaza, caer a inglés
-  const idiomas = [lang, "en"].filter((v, i, a) => a.indexOf(v) === i);
+  const idiomas = [codigo, "en"].filter((v, i, a) => a.indexOf(v) === i);
   let ultimoError = "";
   for (const idioma of idiomas) {
     try {
@@ -684,7 +695,15 @@ const HERRAMIENTAS = {
 async function ejecutarConHerramientas(mensaje, agenteId = "general", maxIteraciones = 6) {
   const config = AGENTES[agenteId] || AGENTES.general;
   const historial = [
-    { role: "system", content: config.system + "\n\nTIENES HERRAMIENTAS REALES disponibles. Úsalas para completar tareas de verdad: generar imágenes/audio/video/PDF, escribir y guardar código en archivos, ejecutar comandos de terminal, leer/listar archivos. Puedes encadenar varias herramientas para tareas complejas (ej: escribir código → guardarlo → ejecutarlo). Cuando termines toda la tarea, responde en español explicando claramente lo que hiciste." },
+    { role: "system", content: config.system + `
+
+TIENES HERRAMIENTAS REALES que ejecutan acciones de verdad (generar imagen/audio/video/PDF, escribir_codigo, guardar_archivo, leer/listar archivos, ejecutar_comando).
+
+REGLAS ABSOLUTAS DE USO DE HERRAMIENTAS:
+1. NUNCA anuncies ni describas que vas a usar una herramienta. NO escribas frases como "ahora procederé a...", "utilizaremos la función...", "vamos a guardar...". En lugar de decirlo, HAZLO: emite la llamada a la herramienta directamente.
+2. Si la tarea necesita varios pasos (ej: escribir código Y guardarlo en un archivo), ejecuta las herramientas UNA TRAS OTRA. Después de escribir_codigo, si hay que guardarlo, llama a guardar_archivo INMEDIATAMENTE en tu siguiente turno.
+3. NO te detengas a mitad de una tarea. Sigue llamando herramientas hasta que TODO esté hecho.
+4. Solo responde con texto normal cuando TODAS las herramientas necesarias ya se ejecutaron y la tarea está 100% completa. Ese texto final debe ser en español, breve, explicando lo que hiciste.` },
     { role: "user", content: mensaje }
   ];
 
@@ -692,6 +711,7 @@ async function ejecutarConHerramientas(mensaje, agenteId = "general", maxIteraci
   const artefactos = [];   // imágenes, audios, videos, pdfs para el frontend
   const pasos = [];        // traza de lo que hizo el agente
   let respuestaFinal = "";
+  let empujado = false;    // salvavidas: solo empujamos una vez si el modelo narra en vez de actuar
 
   for (let iter = 0; iter < maxIteraciones; iter++) {
     const url = `https://api.cloudflare.com/client/v4/accounts/${CF_ACCOUNT_ID}/ai/run/${config.modelo}`;
@@ -706,9 +726,19 @@ async function ejecutarConHerramientas(mensaje, agenteId = "general", maxIteraci
     const result = data.result || {};
     const toolCalls = result.tool_calls || [];
 
-    // Sin herramientas → respuesta final
+    // Sin herramientas → ¿respuesta final o narró en vez de actuar?
     if (!toolCalls.length) {
-      respuestaFinal = result.response || "Tarea completada.";
+      const texto = result.response || "";
+      // Salvavidas: si el modelo DESCRIBE una herramienta en vez de llamarla, lo empujamos una vez
+      const nombresHerr = Object.keys(HERRAMIENTAS).join("|");
+      const narraIntencion = new RegExp(`(${nombresHerr})|procede|procederé|vamos a (guardar|crear|ejecutar)|utilizar[eé]|utilizaremos|voy a (usar|guardar|crear)`, "i").test(texto);
+      if (narraIntencion && !empujado && iter < maxIteraciones - 1) {
+        empujado = true;
+        historial.push({ role: "assistant", content: texto });
+        historial.push({ role: "user", content: "No describas la herramienta: LLÁMALA ahora mismo para completar la tarea. Ejecuta la acción, no la anuncies." });
+        continue; // darle otra vuelta para que ejecute de verdad
+      }
+      respuestaFinal = texto || "Tarea completada.";
       break;
     }
 

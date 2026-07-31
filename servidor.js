@@ -570,6 +570,185 @@ async function verificarResultado(texto, tipo = "general") {
 }
 
 // ══════════════════════════════════════════════
+//  MOTOR DE HERRAMIENTAS (Function Calling / ReAct)
+//  El agente razona, elige herramientas y las encadena
+// ══════════════════════════════════════════════
+const DIR_GENERADOS = path.join(SAFE_ROOT, "generados");
+try { if (!fs.existsSync(DIR_GENERADOS)) fs.mkdirSync(DIR_GENERADOS, { recursive: true }); } catch(e) {}
+
+const HERRAMIENTAS = {
+  generar_imagen: {
+    def: { type: "function", function: {
+      name: "generar_imagen",
+      description: "Genera una imagen desde una descripción. Úsala para logos, fotos, banners, ilustraciones, avatares.",
+      parameters: { type: "object", properties: { prompt: { type: "string", description: "Descripción detallada de la imagen" } }, required: ["prompt"] }
+    }},
+    run: async (a) => { const r = await generarImagen(a.prompt); return { ok: true, tipo: "imagen", ...r }; }
+  },
+  generar_audio: {
+    def: { type: "function", function: {
+      name: "generar_audio",
+      description: "Convierte texto en voz (audio MP3). Úsala para narraciones, locuciones, podcasts.",
+      parameters: { type: "object", properties: { texto: { type: "string", description: "Texto a narrar" } }, required: ["texto"] }
+    }},
+    run: async (a) => { const r = await generarAudio(a.texto, "es"); return { ok: true, tipo: "audio", ...r }; }
+  },
+  generar_video: {
+    def: { type: "function", function: {
+      name: "generar_video",
+      description: "Genera un video corto desde una descripción (secuencia de frames a MP4).",
+      parameters: { type: "object", properties: { prompt: { type: "string", description: "Descripción de la escena" }, frames: { type: "number", description: "Número de frames (3-8)" } }, required: ["prompt"] }
+    }},
+    run: async (a) => { const r = await generarVideo(a.prompt, a.frames || 5); return { ok: true, tipo: "video", ...r }; }
+  },
+  generar_pdf: {
+    def: { type: "function", function: {
+      name: "generar_pdf",
+      description: "Genera un documento PDF con un título y contenido.",
+      parameters: { type: "object", properties: { titulo: { type: "string" }, contenido: { type: "string", description: "Texto completo del documento" } }, required: ["titulo", "contenido"] }
+    }},
+    run: async (a) => { const r = await generarPDF(a.titulo, a.contenido); return { ok: true, tipo: "pdf", ...r }; }
+  },
+  escribir_codigo: {
+    def: { type: "function", function: {
+      name: "escribir_codigo",
+      description: "Escribe código de programación según una descripción. Devuelve el código como texto.",
+      parameters: { type: "object", properties: { descripcion: { type: "string", description: "Qué debe hacer el código" }, lenguaje: { type: "string", description: "javascript, python, etc." } }, required: ["descripcion"] }
+    }},
+    run: async (a) => {
+      const codigo = await llamarCF(AGENTES.programador.modelo, [
+        { role: "system", content: AGENTES.programador.system + " Responde SOLO con el código, sin explicaciones fuera de comentarios." },
+        { role: "user", content: `Lenguaje: ${a.lenguaje || "javascript"}. Tarea: ${a.descripcion}` }
+      ], 2000);
+      return { ok: true, tipo: "codigo", codigo, lenguaje: a.lenguaje || "javascript" };
+    }
+  },
+  guardar_archivo: {
+    def: { type: "function", function: {
+      name: "guardar_archivo",
+      description: "Guarda contenido de texto en un archivo dentro de la carpeta de generados. Úsala para persistir código o documentos.",
+      parameters: { type: "object", properties: { nombre: { type: "string", description: "Nombre del archivo, ej: app.js" }, contenido: { type: "string" } }, required: ["nombre", "contenido"] }
+    }},
+    run: async (a) => {
+      const nombreSeguro = path.basename(a.nombre); // evita rutas maliciosas (../)
+      const ruta = path.join(DIR_GENERADOS, nombreSeguro);
+      fs.writeFileSync(ruta, a.contenido);
+      return { ok: true, tipo: "archivo", nombre: nombreSeguro, ruta, bytes: a.contenido.length };
+    }
+  },
+  leer_archivo: {
+    def: { type: "function", function: {
+      name: "leer_archivo",
+      description: "Lee el contenido de un archivo de la carpeta de generados.",
+      parameters: { type: "object", properties: { nombre: { type: "string" } }, required: ["nombre"] }
+    }},
+    run: async (a) => {
+      const ruta = path.join(DIR_GENERADOS, path.basename(a.nombre));
+      if (!fs.existsSync(ruta)) return { ok: false, error: "Archivo no existe" };
+      return { ok: true, contenido: fs.readFileSync(ruta, "utf8") };
+    }
+  },
+  listar_archivos: {
+    def: { type: "function", function: {
+      name: "listar_archivos",
+      description: "Lista los archivos guardados en la carpeta de generados.",
+      parameters: { type: "object", properties: {} }
+    }},
+    run: async () => {
+      const archivos = fs.existsSync(DIR_GENERADOS) ? fs.readdirSync(DIR_GENERADOS) : [];
+      return { ok: true, archivos, total: archivos.length };
+    }
+  },
+  ejecutar_comando: {
+    def: { type: "function", function: {
+      name: "ejecutar_comando",
+      description: "Ejecuta un comando de terminal en la carpeta de trabajo (Termux). Úsala para tareas de sistema, git, npm, etc.",
+      parameters: { type: "object", properties: { comando: { type: "string" } }, required: ["comando"] }
+    }},
+    run: async (a) => {
+      const cmd = a.comando || "";
+      // Protecciones de seguridad
+      if (/rm\s+-rf\s+\/|sudo|chmod\s+777|mkfs|:\(\)\{|dd\s+if=/i.test(cmd)) {
+        return { ok: false, error: "Comando bloqueado por seguridad" };
+      }
+      return await new Promise(resolve => {
+        exec(cmd, { cwd: SAFE_ROOT, timeout: 20000, maxBuffer: 1024*500 }, (error, stdout, stderr) => {
+          resolve({ ok: !error, stdout: (stdout||"").slice(0,3000), stderr: (stderr||"").slice(0,1000), error: error?.message || null });
+        });
+      });
+    }
+  }
+};
+
+// Loop ReAct: el modelo razona → usa herramientas → ve resultados → continúa
+async function ejecutarConHerramientas(mensaje, agenteId = "general", maxIteraciones = 6) {
+  const config = AGENTES[agenteId] || AGENTES.general;
+  const historial = [
+    { role: "system", content: config.system + "\n\nTIENES HERRAMIENTAS REALES disponibles. Úsalas para completar tareas de verdad: generar imágenes/audio/video/PDF, escribir y guardar código en archivos, ejecutar comandos de terminal, leer/listar archivos. Puedes encadenar varias herramientas para tareas complejas (ej: escribir código → guardarlo → ejecutarlo). Cuando termines toda la tarea, responde en español explicando claramente lo que hiciste." },
+    { role: "user", content: mensaje }
+  ];
+
+  const toolsSchema = Object.values(HERRAMIENTAS).map(h => h.def);
+  const artefactos = [];   // imágenes, audios, videos, pdfs para el frontend
+  const pasos = [];        // traza de lo que hizo el agente
+  let respuestaFinal = "";
+
+  for (let iter = 0; iter < maxIteraciones; iter++) {
+    const url = `https://api.cloudflare.com/client/v4/accounts/${CF_ACCOUNT_ID}/ai/run/${config.modelo}`;
+    const resp = await fetch(url, {
+      method: "POST",
+      headers: { "Authorization": `Bearer ${CF_TOKEN}`, "Content-Type": "application/json" },
+      body: JSON.stringify({ messages: historial, tools: toolsSchema, max_tokens: 1500 })
+    });
+    const data = await resp.json();
+    if (!data.success) throw new Error(JSON.stringify(data.errors));
+
+    const result = data.result || {};
+    const toolCalls = result.tool_calls || [];
+
+    // Sin herramientas → respuesta final
+    if (!toolCalls.length) {
+      respuestaFinal = result.response || "Tarea completada.";
+      break;
+    }
+
+    // Registrar la decisión del asistente
+    historial.push({ role: "assistant", content: result.response || "", tool_calls: toolCalls });
+
+    // Ejecutar cada herramienta pedida
+    for (const tc of toolCalls) {
+      const nombre = tc.name || tc.function?.name;
+      let args = tc.arguments ?? tc.function?.arguments ?? {};
+      if (typeof args === "string") { try { args = JSON.parse(args); } catch(e) { args = {}; } }
+
+      const herramienta = HERRAMIENTAS[nombre];
+      let resultado;
+      if (herramienta) {
+        try { resultado = await herramienta.run(args); }
+        catch(e) { resultado = { ok: false, error: e.message }; }
+      } else {
+        resultado = { ok: false, error: "Herramienta desconocida: " + nombre };
+      }
+
+      pasos.push({ herramienta: nombre, argumentos: args, ok: resultado.ok });
+
+      // Guardar artefactos multimedia para el frontend
+      if (resultado.tipo && ["imagen","audio","video","pdf"].includes(resultado.tipo)) {
+        artefactos.push(resultado);
+      }
+
+      // Devolver al modelo una versión ligera (sin base64 gigante que satura el contexto)
+      const liviano = { ...resultado };
+      ["imagen","audio","video","pdf"].forEach(k => { if (liviano[k]) liviano[k] = `[${k} generado correctamente]`; });
+      historial.push({ role: "tool", name: nombre, content: JSON.stringify(liviano).slice(0, 2000) });
+    }
+  }
+
+  if (!respuestaFinal) respuestaFinal = "Tarea procesada (se alcanzó el límite de pasos).";
+  return { respuesta: respuestaFinal, pasos, artefactos };
+}
+
+// ══════════════════════════════════════════════
 //  MIDDLEWARE
 // ══════════════════════════════════════════════
 app.use(express.json({ limit: "50mb" }));
@@ -591,10 +770,10 @@ app.get("/health", (req, res) => {
   res.json({
     status: "online",
     nombre: "FUNDORA AGENCY AI",
-    version: "4.1",
+    version: "4.2",
     agentes: Object.keys(AGENTES).length,
     uptime_horas: (process.uptime() / 3600).toFixed(2),
-    capacidades: ["chat", "imagen", "video", "audio", "pdf", "codigo", "terminal"],
+    capacidades: ["chat", "agente-herramientas", "imagen", "video", "audio", "pdf", "codigo", "terminal"],
     motores: {
       imagen: "FLUX.1 Schnell (fallback SDXL)",
       audio: "MeloTTS + Whisper v3 Turbo",
@@ -741,6 +920,27 @@ app.post("/chat", async (req, res) => {
     
   } catch(e) {
     logger.error("Error /chat:", e.message);
+    res.status(500).json({ error: e.message });
+  }
+});
+
+// ══════════════════════════════════════════════
+//  /agente — MOTOR DE HERRAMIENTAS (razona y ejecuta)
+// ══════════════════════════════════════════════
+app.post("/agente", async (req, res) => {
+  const { mensaje, agente = "general" } = req.body;
+  if (!mensaje) return res.status(400).json({ error: "Falta mensaje" });
+  try {
+    const r = await ejecutarConHerramientas(mensaje, agente);
+    res.json({
+      agente: (AGENTES[agente] || AGENTES.general).nombre,
+      respuesta: r.respuesta,
+      pasos: r.pasos,           // traza: qué herramientas usó
+      artefactos: r.artefactos, // imágenes/audio/video/pdf generados
+      total_pasos: r.pasos.length
+    });
+  } catch(e) {
+    logger.error("Error /agente: " + e.message);
     res.status(500).json({ error: e.message });
   }
 });
@@ -1070,7 +1270,7 @@ app.get("/stats", (req, res) => {
 
 app.get("/skills", (req, res) => {
   res.json({
-    sistema: "FUNDORA AGENCY AI v4.1",
+    sistema: "FUNDORA AGENCY AI v4.2",
     agentes: Object.keys(AGENTES).length,
     orquestador: "Detección automática de intenciones — imagen, video, audio, PDF, código",
     motores_gratuitos: {
@@ -1083,7 +1283,8 @@ app.get("/skills", (req, res) => {
     },
     endpoints: [
       "GET /health", "GET /agentes", "GET /stats", "GET /skills",
-      "POST /chat (orquestador — detecta imagen/video/audio/pdf/codigo automáticamente)",
+      "POST /chat (orquestador regex — detecta imagen/video/audio/pdf/codigo)",
+      "POST /agente (MOTOR DE HERRAMIENTAS — razona, encadena, ejecuta tareas reales)",
       "POST /consulta", "POST /verificar", "POST /validar", "POST /feedback",
       "GET /memoria/:agenteId", "POST /memoria/buscar",
       "POST /agentes/crear", "POST /agentes/:id/clonar", "POST /agentes/:id/conocimiento",
@@ -1127,7 +1328,7 @@ app.get("/dashboard", (req, res) => res.sendFile(path.join(__dirname, "public", 
 
 // ══════════════════════════════════════════════
 app.listen(PORT, () => {
-  console.log(`✅ FUNDORA AGENCY AI v4.1 en puerto ${PORT}`);
+  console.log(`✅ FUNDORA AGENCY AI v4.2 en puerto ${PORT}`);
   console.log(`🤖 ${Object.keys(AGENTES).length} agentes activos`);
   console.log(`⚡ Orquestador de intenciones: ACTIVO`);
   console.log(`🎨 FLUX.1 | 🎬 Video | 🔊 Audio | 📄 PDF | ⌨️ Código — sin botones, solo pedirlo`);

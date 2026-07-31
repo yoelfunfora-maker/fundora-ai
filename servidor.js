@@ -712,13 +712,26 @@ async function ejecutarConHerramientas(mensaje, agenteId = "general", maxIteraci
       break;
     }
 
-    // Registrar la decisión del asistente
-    historial.push({ role: "assistant", content: result.response || "", tool_calls: toolCalls });
-
-    // Ejecutar cada herramienta pedida
-    for (const tc of toolCalls) {
+    // Normalizar los tool_calls al FORMATO OpenAI COMPLETO que Cloudflare exige al reenviar
+    // (Cloudflare los entrega como {name, arguments} pero los pide de vuelta con id + type + function)
+    const toolCallsFmt = toolCalls.map((tc, i) => {
       const nombre = tc.name || tc.function?.name;
       let args = tc.arguments ?? tc.function?.arguments ?? {};
+      const argsStr = typeof args === "string" ? args : JSON.stringify(args); // arguments debe ir como TEXTO
+      return {
+        id: tc.id || `call_${Date.now()}_${i}`,   // id requerido (lo generamos si no viene)
+        type: "function",                          // type requerido
+        function: { name: nombre, arguments: argsStr }
+      };
+    });
+
+    // Registrar la decisión del asistente con el formato correcto
+    historial.push({ role: "assistant", content: result.response || "", tool_calls: toolCallsFmt });
+
+    // Ejecutar cada herramienta pedida
+    for (const tcf of toolCallsFmt) {
+      const nombre = tcf.function.name;
+      let args = tcf.function.arguments;
       if (typeof args === "string") { try { args = JSON.parse(args); } catch(e) { args = {}; } }
 
       const herramienta = HERRAMIENTAS[nombre];
@@ -740,7 +753,8 @@ async function ejecutarConHerramientas(mensaje, agenteId = "general", maxIteraci
       // Devolver al modelo una versión ligera (sin base64 gigante que satura el contexto)
       const liviano = { ...resultado };
       ["imagen","audio","video","pdf"].forEach(k => { if (liviano[k]) liviano[k] = `[${k} generado correctamente]`; });
-      historial.push({ role: "tool", name: nombre, content: JSON.stringify(liviano).slice(0, 2000) });
+      // El mensaje 'tool' necesita tool_call_id que coincida con el id del tool_call
+      historial.push({ role: "tool", tool_call_id: tcf.id, name: nombre, content: JSON.stringify(liviano).slice(0, 2000) });
     }
   }
 

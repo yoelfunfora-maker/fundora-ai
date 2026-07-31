@@ -34,6 +34,9 @@ const CF_TOKEN = process.env.CF_TOKEN || "";
 const GROQ_KEY = process.env.GROQ_KEY || "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";
 const JWT_SECRET = process.env.JWT_SECRET || "fundora-ai-secreto-2026";
 const SAFE_ROOT = path.join(os.homedir(), "fundora-ai");
+// Termux NO tiene /tmp — usamos un directorio propio dentro de fundora-ai
+const TMP_DIR = path.join(SAFE_ROOT, ".tmp");
+try { if (!fs.existsSync(TMP_DIR)) fs.mkdirSync(TMP_DIR, { recursive: true }); } catch(e) {}
 
 // Modelos disponibles
 const MODELOS = {
@@ -431,15 +434,27 @@ async function generarImagen(prompt) {
 // ── AUDIO: Texto → Voz (MeloTTS) ──
 async function generarAudio(texto, lang = "es") {
   const url = `https://api.cloudflare.com/client/v4/accounts/${CF_ACCOUNT_ID}/ai/run/${MODELOS.audio_tts}`;
-  const resp = await fetch(url, {
-    method: "POST",
-    headers: { "Authorization": `Bearer ${CF_TOKEN}`, "Content-Type": "application/json" },
-    body: JSON.stringify({ prompt: texto, lang })
-  });
-  const data = await resp.json();
-  if (!data.success) throw new Error(JSON.stringify(data.errors));
-  // MeloTTS devuelve result.audio como base64 mp3
-  return { audio: "data:audio/mpeg;base64," + data.result.audio, texto };
+  // Limpiar el texto: MeloTTS no maneja bien textos muy largos o con muchos símbolos
+  const textoLimpio = texto.replace(/[#*`_>]/g, "").slice(0, 500).trim();
+
+  // Intentar con el idioma pedido; si Cloudflare lo rechaza, caer a inglés
+  const idiomas = [lang, "en"].filter((v, i, a) => a.indexOf(v) === i);
+  let ultimoError = "";
+  for (const idioma of idiomas) {
+    try {
+      const resp = await fetch(url, {
+        method: "POST",
+        headers: { "Authorization": `Bearer ${CF_TOKEN}`, "Content-Type": "application/json" },
+        body: JSON.stringify({ prompt: textoLimpio, lang: idioma })
+      });
+      const data = await resp.json();
+      if (data.success && data.result?.audio) {
+        return { audio: "data:audio/mpeg;base64," + data.result.audio, texto: textoLimpio, idioma };
+      }
+      ultimoError = JSON.stringify(data.errors || data);
+    } catch(e) { ultimoError = e.message; }
+  }
+  throw new Error("MeloTTS falló: " + ultimoError);
 }
 
 // ── AUDIO: Voz → Texto (Whisper) ──
@@ -480,7 +495,7 @@ async function generarVideo(prompt, frames = 6) {
       const d = await resp.json();
       if (d.success && d.result?.image) {
         imagenes.push(d.result.image);
-        fs.writeFileSync(`/tmp/vframe_${i}.jpg`, Buffer.from(d.result.image, "base64"));
+        fs.writeFileSync(path.join(TMP_DIR, `vframe_${i}.jpg`), Buffer.from(d.result.image, "base64"));
       }
     } catch(e) { logger.warn(`Frame ${i} falló: ${e.message}`); }
   }
@@ -488,11 +503,13 @@ async function generarVideo(prompt, frames = 6) {
   if (imagenes.length >= 2) {
     try {
       // framerate 2 + libx264 → video más fluido que el anterior (1 fps)
-      execSync(`ffmpeg -y -framerate 2 -i /tmp/vframe_%d.jpg -c:v libx264 -pix_fmt yuv420p -vf "scale=1024:1024:force_original_aspect_ratio=decrease,pad=1024:1024:(ow-iw)/2:(oh-ih)/2" /tmp/vout.mp4 2>/dev/null`);
-      const videoBuf = fs.readFileSync("/tmp/vout.mp4");
+      const patron = path.join(TMP_DIR, "vframe_%d.jpg");
+      const salida = path.join(TMP_DIR, "vout.mp4");
+      execSync(`ffmpeg -y -framerate 2 -i "${patron}" -c:v libx264 -pix_fmt yuv420p -vf "scale=1024:1024:force_original_aspect_ratio=decrease,pad=1024:1024:(ow-iw)/2:(oh-ih)/2" "${salida}" 2>/dev/null`);
+      const videoBuf = fs.readFileSync(salida);
       const videoB64 = videoBuf.toString("base64");
-      for (let i = 0; i < frames; i++) { try { fs.unlinkSync(`/tmp/vframe_${i}.jpg`); } catch(e) {} }
-      try { fs.unlinkSync("/tmp/vout.mp4"); } catch(e) {}
+      for (let i = 0; i < frames; i++) { try { fs.unlinkSync(path.join(TMP_DIR, `vframe_${i}.jpg`)); } catch(e) {} }
+      try { fs.unlinkSync(salida); } catch(e) {}
       return { video: "data:video/mp4;base64," + videoB64, frames: imagenes.length, modelo: "flux-frames+ffmpeg" };
     } catch(e) {
       logger.warn("ffmpeg falló: " + e.message);

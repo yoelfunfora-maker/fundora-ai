@@ -787,7 +787,10 @@ REGLAS ABSOLUTAS DE USO DE HERRAMIENTAS:
 
     // Sin herramientas → ¿respuesta final o narró en vez de actuar?
     if (!toolCalls.length) {
-      const texto = result.response || "";
+      // Robustez: a veces Cloudflare devuelve response como objeto → lo pasamos a texto
+      let texto = result.response;
+      if (texto && typeof texto === "object") texto = texto.response || texto.text || JSON.stringify(texto);
+      texto = (texto || "").toString();
       // Salvavidas: si el modelo DESCRIBE una herramienta en vez de llamarla, lo empujamos una vez
       const nombresHerr = Object.keys(HERRAMIENTAS).join("|");
       const narraIntencion = new RegExp(`(${nombresHerr})|procede|procederé|vamos a (guardar|crear|ejecutar)|utilizar[eé]|utilizaremos|voy a (usar|guardar|crear)`, "i").test(texto);
@@ -848,6 +851,7 @@ REGLAS ABSOLUTAS DE USO DE HERRAMIENTAS:
   }
 
   if (!respuestaFinal) respuestaFinal = "Tarea procesada (se alcanzó el límite de pasos).";
+  if (typeof respuestaFinal !== "string") respuestaFinal = JSON.stringify(respuestaFinal);
   return { respuesta: respuestaFinal, pasos, artefactos };
 }
 
@@ -1484,6 +1488,14 @@ app.ws("/terminal", (ws, req) => {
   });
 });
 
+// Servir el STUDIO (interfaz de chat con menú lateral de conversaciones)
+app.get("/studio", (req, res) => {
+  try {
+    res.type("html").send(fs.readFileSync(path.join(SAFE_ROOT, "studio.html"), "utf8"));
+  } catch(e) {
+    res.status(500).send("studio.html no encontrado en " + SAFE_ROOT);
+  }
+});
 app.get("/dashboard", (req, res) => res.sendFile(path.join(__dirname, "public", "dashboard.html")));
 
 // ══════════════════════════════════════════════

@@ -2,11 +2,10 @@
 <html lang="es">
 <head>
 <meta charset="UTF-8">
-<!-- Viewport para que funcione bien en el teléfono -->
 <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0">
 <title>FUNDORA AGENCY · Studio</title>
 
-<!-- Fuentes: Space Grotesk (títulos, con carácter tech) + Inter (texto, legible) -->
+<!-- Fuentes: Space Grotesk (títulos) + Inter (texto) -->
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@500;600;700&family=Inter:wght@400;500;600&display=swap" rel="stylesheet">
@@ -14,8 +13,6 @@
 <style>
 /* ═══════════════════════════════════════════════
    PALETA — "Atlántico premium"
-   El azul océano es la base; el oro es la marca Fundora;
-   el aqua marca lo que está vivo (agente activo).
    ═══════════════════════════════════════════════ */
 :root {
   --oceano:        #0a1622;   /* fondo principal — Atlántico nocturno */
@@ -27,357 +24,175 @@
   --texto:         #f4efe6;   /* texto principal (blanco cálido) */
   --texto-suave:   #8ba0b5;   /* texto secundario (gris azulado) */
   --usuario-burbuja:#173248;  /* fondo de tus mensajes */
-  --ok:            #34d399;   /* verde de "hecho" en la traza */
+  --ok:            #34d399;   /* verde de "hecho" */
 }
-
 * { margin: 0; padding: 0; box-sizing: border-box; }
-
 body {
   font-family: 'Inter', system-ui, sans-serif;
-  background: var(--oceano);
-  color: var(--texto);
-  height: 100vh;
-  overflow: hidden;
-  display: flex;              /* menú lateral + área principal, lado a lado */
+  background: var(--oceano); color: var(--texto);
+  height: 100vh; overflow: hidden; display: flex;
 }
+/* Los iconos SVG heredan el color del texto de su contenedor */
+svg { display: block; }
+.ico { display: inline-flex; align-items: center; justify-content: center; }
 
-/* ═══════════════════════════════════════════════
-   MENÚ LATERAL (conversaciones guardadas)
-   ═══════════════════════════════════════════════ */
+/* ═══ MENÚ LATERAL ═══ */
 #sidebar {
-  width: 280px;
-  background: var(--superficie);
+  width: 280px; background: var(--superficie);
   border-right: 1px solid var(--borde);
-  display: flex;
-  flex-direction: column;
-  flex-shrink: 0;
+  display: flex; flex-direction: column; flex-shrink: 0;
   transition: transform 0.25s ease;
 }
-
-/* Logo / cabecera del menú */
-.marca {
-  padding: 20px 18px 16px;
-  border-bottom: 1px solid var(--borde);
-}
+.marca { padding: 20px 18px 16px; border-bottom: 1px solid var(--borde); }
 .marca h1 {
-  font-family: 'Space Grotesk', sans-serif;
-  font-size: 20px;
-  font-weight: 700;
-  letter-spacing: 0.5px;
-  display: flex;
-  align-items: center;
-  gap: 8px;
+  font-family: 'Space Grotesk', sans-serif; font-size: 20px; font-weight: 700;
+  letter-spacing: 0.5px; display: flex; align-items: center; gap: 9px;
 }
-/* El punto dorado del logo — pequeño detalle de marca */
-.marca h1::before {
-  content: "";
-  width: 10px; height: 10px;
-  border-radius: 50%;
-  background: var(--oro);
-  box-shadow: 0 0 12px var(--oro);   /* brillo sutil, como una brújula */
-}
+/* Rombo dorado del logo (dibujado, no emoji) */
+.marca .diamante { width: 12px; height: 12px; background: var(--oro); transform: rotate(45deg); border-radius: 2px; box-shadow: 0 0 12px rgba(240,180,41,0.5); }
 .marca span { color: var(--texto-suave); font-weight: 500; font-size: 12px; letter-spacing: 2px; }
 
-/* Botón "nueva conversación" */
 .btn-nueva {
-  margin: 14px;
-  padding: 12px;
-  background: transparent;
-  border: 1px solid var(--oro);
-  color: var(--oro);
-  border-radius: 10px;
-  font-family: 'Inter', sans-serif;
-  font-size: 14px;
-  font-weight: 600;
-  cursor: pointer;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  gap: 8px;
+  margin: 14px; padding: 12px; background: transparent;
+  border: 1px solid var(--oro); color: var(--oro); border-radius: 10px;
+  font-family: 'Inter'; font-size: 14px; font-weight: 600; cursor: pointer;
+  display: flex; align-items: center; justify-content: center; gap: 8px;
   transition: all 0.15s ease;
 }
 .btn-nueva:hover { background: var(--oro); color: var(--oceano); }
+.btn-nueva .ico { color: currentColor; }
 
-/* Lista de conversaciones (scroll) */
-#lista-conversaciones {
-  flex: 1;
-  overflow-y: auto;
-  padding: 6px 10px;
-}
+#lista-conversaciones { flex: 1; overflow-y: auto; padding: 6px 10px; }
 .conv-item {
-  padding: 11px 12px;
-  border-radius: 9px;
-  cursor: pointer;
-  margin-bottom: 3px;
-  display: flex;
-  align-items: center;
-  gap: 10px;
-  color: var(--texto-suave);
-  font-size: 14px;
-  transition: background 0.12s ease;
-  position: relative;
+  padding: 11px 12px; border-radius: 9px; cursor: pointer; margin-bottom: 3px;
+  display: flex; align-items: center; gap: 10px;
+  color: var(--texto-suave); font-size: 14px;
+  transition: background 0.12s ease; position: relative;
 }
 .conv-item:hover { background: var(--superficie-alta); color: var(--texto); }
-.conv-item.activa {
-  background: var(--superficie-alta);
-  color: var(--texto);
-  /* Barra dorada a la izquierda de la conversación abierta */
-  box-shadow: inset 3px 0 0 var(--oro);
-}
-.conv-item .titulo {
-  flex: 1;
-  white-space: nowrap;
-  overflow: hidden;
-  text-overflow: ellipsis;
-}
-.conv-item .agente-tag {
-  font-size: 10px;
-  color: var(--aqua);
-  text-transform: uppercase;
-  letter-spacing: 0.5px;
-}
-/* Botón de borrar (aparece al pasar el mouse) */
-.conv-item .borrar {
-  opacity: 0;
-  color: var(--texto-suave);
-  font-size: 16px;
-  transition: opacity 0.12s ease;
-}
-.conv-item:hover .borrar { opacity: 0.6; }
+.conv-item.activa { background: var(--superficie-alta); color: var(--texto); box-shadow: inset 3px 0 0 var(--oro); }
+.conv-item .titulo { flex: 1; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.conv-item .agente-tag { font-size: 10px; color: var(--aqua); text-transform: uppercase; letter-spacing: 0.5px; }
+.conv-item .borrar { opacity: 0; color: var(--texto-suave); transition: opacity 0.12s ease; display: flex; }
+.conv-item:hover .borrar { opacity: 0.55; }
 .conv-item .borrar:hover { opacity: 1; color: #f87171; }
 
-/* Pie del menú */
-.pie-menu {
-  padding: 14px 18px;
-  border-top: 1px solid var(--borde);
-  font-size: 11px;
-  color: var(--texto-suave);
-}
+.pie-menu { padding: 14px 18px; border-top: 1px solid var(--borde); font-size: 11px; color: var(--texto-suave); }
 .estado-conexion { display: flex; align-items: center; gap: 7px; }
 .punto-estado { width: 8px; height: 8px; border-radius: 50%; background: var(--ok); }
 .punto-estado.offline { background: #f87171; }
 
-/* ═══════════════════════════════════════════════
-   ÁREA PRINCIPAL (chat)
-   ═══════════════════════════════════════════════ */
-#principal {
-  flex: 1;
-  display: flex;
-  flex-direction: column;
-  min-width: 0;
-}
-
-/* Cabecera del chat: botón menú (móvil) + selector de agente */
+/* ═══ ÁREA PRINCIPAL ═══ */
+#principal { flex: 1; display: flex; flex-direction: column; min-width: 0; }
 .cabecera-chat {
-  padding: 14px 20px;
-  border-bottom: 1px solid var(--borde);
-  display: flex;
-  align-items: center;
-  gap: 14px;
-  background: var(--superficie);
+  padding: 12px 20px; border-bottom: 1px solid var(--borde);
+  display: flex; align-items: center; gap: 14px; background: var(--superficie);
 }
-.btn-menu {
-  display: none;   /* solo visible en móvil */
-  background: none;
-  border: none;
-  color: var(--texto);
-  font-size: 22px;
-  cursor: pointer;
-}
-.selector-agente {
-  background: var(--oceano);
-  color: var(--texto);
-  border: 1px solid var(--borde);
-  border-radius: 8px;
-  padding: 8px 12px;
-  font-family: 'Inter', sans-serif;
-  font-size: 14px;
-  cursor: pointer;
-}
-.cabecera-chat .subtitulo {
-  margin-left: auto;
-  font-size: 12px;
-  color: var(--texto-suave);
-}
+.btn-menu { display: none; background: none; border: none; color: var(--texto); cursor: pointer; padding: 4px; }
+.cabecera-chat .subtitulo { margin-left: auto; font-size: 12px; color: var(--texto-suave); }
 
-/* Zona de mensajes (scroll) */
-#mensajes {
-  flex: 1;
-  overflow-y: auto;
-  padding: 24px 20px;
-  display: flex;
-  flex-direction: column;
-  gap: 18px;
+/* Menú desplegable de agentes (propio, con iconos) */
+.dropdown-agente { position: relative; }
+.dd-boton {
+  display: flex; align-items: center; gap: 9px;
+  background: var(--oceano); border: 1px solid var(--borde); border-radius: 9px;
+  padding: 9px 13px; color: var(--texto); font-family: 'Inter'; font-size: 14px; cursor: pointer;
 }
+.dd-boton:hover { border-color: var(--oro); }
+.dd-boton .dd-icono { color: var(--oro); display: flex; }
+.dd-flecha { color: var(--texto-suave); display: flex; }
+.dd-lista {
+  position: absolute; top: calc(100% + 6px); left: 0;
+  background: var(--superficie-alta); border: 1px solid var(--borde);
+  border-radius: 12px; padding: 6px; min-width: 250px; z-index: 30;
+  display: none; box-shadow: 0 14px 40px rgba(0,0,0,0.45);
+}
+.dd-lista.abierta { display: block; animation: aparecer 0.15s ease; }
+@keyframes aparecer { from { opacity: 0; transform: translateY(-6px); } to { opacity: 1; transform: none; } }
+.dd-opcion {
+  display: flex; align-items: center; gap: 11px; padding: 10px 11px;
+  border-radius: 8px; cursor: pointer; font-size: 14px; color: var(--texto-suave);
+}
+.dd-opcion:hover { background: var(--oceano); color: var(--texto); }
+.dd-opcion .op-icono { color: var(--aqua); display: flex; flex-shrink: 0; }
+.dd-opcion .op-desc { font-size: 11px; color: var(--texto-suave); margin-left: auto; }
 
-/* Pantalla de bienvenida (cuando no hay mensajes) */
-.bienvenida {
-  margin: auto;
-  text-align: center;
-  max-width: 440px;
-  color: var(--texto-suave);
-}
-.bienvenida .icono {
-  font-size: 48px;
-  margin-bottom: 16px;
-}
-.bienvenida h2 {
-  font-family: 'Space Grotesk', sans-serif;
-  color: var(--texto);
-  font-size: 24px;
-  margin-bottom: 10px;
-}
+#mensajes { flex: 1; overflow-y: auto; padding: 24px 20px; display: flex; flex-direction: column; gap: 18px; }
+
+.bienvenida { margin: auto; text-align: center; max-width: 440px; color: var(--texto-suave); }
+.bienvenida .icono-grande { color: var(--oro); margin: 0 auto 18px; width: 52px; height: 52px; }
+.bienvenida h2 { font-family: 'Space Grotesk'; color: var(--texto); font-size: 24px; margin-bottom: 10px; }
 .bienvenida p { font-size: 15px; line-height: 1.6; }
 
-/* Burbujas de mensaje */
 .mensaje { display: flex; gap: 12px; max-width: 760px; }
 .mensaje.usuario { align-self: flex-end; flex-direction: row-reverse; }
 .avatar {
-  width: 34px; height: 34px;
-  border-radius: 9px;
-  flex-shrink: 0;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  font-size: 16px;
-  font-weight: 600;
+  width: 34px; height: 34px; border-radius: 9px; flex-shrink: 0;
+  display: flex; align-items: center; justify-content: center;
+  font-size: 13px; font-weight: 700; font-family: 'Space Grotesk';
 }
 .avatar.ia { background: linear-gradient(135deg, var(--oro), #d4941a); color: var(--oceano); }
-.avatar.yo { background: var(--usuario-burbuja); color: var(--aqua); }
-.burbuja {
-  padding: 13px 16px;
-  border-radius: 14px;
-  font-size: 15px;
-  line-height: 1.55;
-  white-space: pre-wrap;
-  word-break: break-word;
-}
+.avatar.yo { background: var(--usuario-burbuja); color: var(--aqua); font-size: 11px; }
+.burbuja { padding: 13px 16px; border-radius: 14px; font-size: 15px; line-height: 1.55; white-space: pre-wrap; word-break: break-word; }
 .mensaje.ia .burbuja { background: var(--superficie); border: 1px solid var(--borde); border-top-left-radius: 4px; }
 .mensaje.usuario .burbuja { background: var(--usuario-burbuja); border-top-right-radius: 4px; }
 
-/* ─── EL ELEMENTO ESTRELLA: rastro de trabajo del agente ─── */
-/* Muestra las herramientas que el agente ejecutó, en vivo */
-.rastro {
-  margin-top: 10px;
-  display: flex;
-  flex-direction: column;
-  gap: 6px;
-}
+/* Rastro de trabajo del agente (elemento estrella) */
+.rastro { margin-top: 10px; display: flex; flex-direction: column; gap: 6px; }
 .paso {
-  display: flex;
-  align-items: center;
-  gap: 9px;
-  font-size: 13px;
-  color: var(--texto-suave);
-  background: var(--oceano);
-  border: 1px solid var(--borde);
-  border-radius: 8px;
-  padding: 7px 11px;
+  display: flex; align-items: center; gap: 9px; font-size: 13px; color: var(--texto-suave);
+  background: var(--oceano); border: 1px solid var(--borde); border-radius: 8px; padding: 7px 11px;
 }
-.paso .icono-paso { font-size: 14px; }
-.paso .check { margin-left: auto; color: var(--ok); font-weight: 600; }
-.paso.trabajando .check { color: var(--aqua); }
-/* Animación de "pensando" mientras el agente trabaja */
+.paso .icono-paso { color: var(--aqua); display: flex; flex-shrink: 0; }
+.paso .check { margin-left: auto; color: var(--ok); display: flex; }
+.paso .check.fallo { color: #f87171; }
+
 .pensando { display: flex; gap: 5px; padding: 6px 0; }
-.pensando span {
-  width: 7px; height: 7px;
-  border-radius: 50%;
-  background: var(--aqua);
-  animation: latido 1.2s infinite ease-in-out;
-}
+.pensando span { width: 7px; height: 7px; border-radius: 50%; background: var(--aqua); animation: latido 1.2s infinite ease-in-out; }
 .pensando span:nth-child(2) { animation-delay: 0.15s; }
 .pensando span:nth-child(3) { animation-delay: 0.3s; }
 @keyframes latido { 0%, 60%, 100% { opacity: 0.3; transform: scale(0.8); } 30% { opacity: 1; transform: scale(1); } }
 
-/* Multimedia generada (imágenes, audio) dentro del chat */
 .artefacto { margin-top: 10px; }
 .artefacto img { max-width: 320px; border-radius: 10px; border: 1px solid var(--borde); }
 .artefacto audio { width: 280px; margin-top: 6px; }
-.artefacto .chip-archivo {
-  display: inline-flex;
-  align-items: center;
-  gap: 8px;
-  background: var(--oceano);
-  border: 1px solid var(--borde);
-  border-radius: 8px;
-  padding: 8px 12px;
-  font-size: 13px;
-  color: var(--aqua);
+.chip-archivo {
+  display: inline-flex; align-items: center; gap: 8px;
+  background: var(--oceano); border: 1px solid var(--borde);
+  border-radius: 8px; padding: 8px 12px; font-size: 13px; color: var(--aqua);
 }
+.chip-archivo .ico { color: var(--aqua); }
 
-/* Zona de escritura */
-.zona-input {
-  padding: 16px 20px 20px;
-  border-top: 1px solid var(--borde);
-  background: var(--superficie);
-}
+.zona-input { padding: 16px 20px 20px; border-top: 1px solid var(--borde); background: var(--superficie); }
 .caja-input {
-  display: flex;
-  gap: 10px;
-  align-items: flex-end;
-  background: var(--oceano);
-  border: 1px solid var(--borde);
-  border-radius: 14px;
-  padding: 8px 8px 8px 16px;
-  max-width: 800px;
-  margin: 0 auto;
+  display: flex; gap: 10px; align-items: flex-end;
+  background: var(--oceano); border: 1px solid var(--borde); border-radius: 14px;
+  padding: 8px 8px 8px 16px; max-width: 800px; margin: 0 auto;
 }
 .caja-input:focus-within { border-color: var(--oro); }
 #entrada {
-  flex: 1;
-  background: none;
-  border: none;
-  color: var(--texto);
-  font-family: 'Inter', sans-serif;
-  font-size: 15px;
-  resize: none;
-  max-height: 140px;
-  outline: none;
-  padding: 8px 0;
-  line-height: 1.5;
+  flex: 1; background: none; border: none; color: var(--texto);
+  font-family: 'Inter'; font-size: 15px; resize: none; max-height: 140px;
+  outline: none; padding: 8px 0; line-height: 1.5;
 }
 #entrada::placeholder { color: var(--texto-suave); }
 .btn-enviar {
-  width: 40px; height: 40px;
-  border-radius: 10px;
-  background: var(--oro);
-  color: var(--oceano);
-  border: none;
-  font-size: 18px;
-  cursor: pointer;
-  flex-shrink: 0;
-  display: flex;
-  align-items: center;
-  justify-content: center;
+  width: 40px; height: 40px; border-radius: 10px; background: var(--oro); color: var(--oceano);
+  border: none; cursor: pointer; flex-shrink: 0; display: flex; align-items: center; justify-content: center;
   transition: transform 0.1s ease;
 }
 .btn-enviar:hover { transform: scale(1.05); }
 .btn-enviar:disabled { opacity: 0.4; cursor: not-allowed; transform: none; }
 
-/* ═══════════════════════════════════════════════
-   RESPONSIVE — en el teléfono el menú se oculta
-   ═══════════════════════════════════════════════ */
+/* Responsive */
 .velo { display: none; }
 @media (max-width: 720px) {
-  #sidebar {
-    position: fixed;
-    top: 0; left: 0; bottom: 0;
-    z-index: 20;
-    transform: translateX(-100%);   /* oculto por defecto */
-  }
+  #sidebar { position: fixed; top: 0; left: 0; bottom: 0; z-index: 20; transform: translateX(-100%); }
   #sidebar.abierto { transform: translateX(0); }
-  .btn-menu { display: block; }
-  .velo.visible {
-    display: block;
-    position: fixed;
-    inset: 0;
-    background: rgba(0,0,0,0.5);
-    z-index: 15;
-  }
+  .btn-menu { display: flex; }
+  .velo.visible { display: block; position: fixed; inset: 0; background: rgba(0,0,0,0.5); z-index: 15; }
   .mensaje { max-width: 100%; }
 }
-
-/* Scrollbars discretas */
 ::-webkit-scrollbar { width: 8px; }
 ::-webkit-scrollbar-thumb { background: var(--borde); border-radius: 4px; }
 ::-webkit-scrollbar-track { background: transparent; }
@@ -388,13 +203,13 @@ body {
 <!-- ═══ MENÚ LATERAL ═══ -->
 <aside id="sidebar">
   <div class="marca">
-    <h1>FUNDORA</h1>
+    <h1><span class="diamante"></span> FUNDORA</h1>
     <span>AGENCY · STUDIO</span>
   </div>
   <button class="btn-nueva" onclick="nuevaConversacion()">
-    <span style="font-size:18px;">＋</span> Nueva conversación
+    <span class="ico" id="ico-nueva"></span> Nueva conversación
   </button>
-  <div id="lista-conversaciones"><!-- se llena con JS --></div>
+  <div id="lista-conversaciones"></div>
   <div class="pie-menu">
     <div class="estado-conexion">
       <span class="punto-estado" id="punto-estado"></span>
@@ -403,30 +218,26 @@ body {
   </div>
 </aside>
 
-<!-- Velo oscuro detrás del menú en móvil -->
 <div class="velo" id="velo" onclick="cerrarMenu()"></div>
 
-<!-- ═══ ÁREA PRINCIPAL (CHAT) ═══ -->
+<!-- ═══ ÁREA PRINCIPAL ═══ -->
 <main id="principal">
   <div class="cabecera-chat">
-    <button class="btn-menu" onclick="abrirMenu()">☰</button>
-    <select class="selector-agente" id="selector-agente">
-      <option value="general">🧭 General (orquestador)</option>
-      <option value="ceo">👔 CEO Fundora Prime</option>
-      <option value="programador">💻 Programador</option>
-      <option value="director">🎨 Director creativo</option>
-      <option value="financiero">💰 Financiero</option>
-      <option value="marketing">📣 Marketing</option>
-      <option value="abogado">⚖️ Abogado</option>
-      <option value="analista">📊 Analista deportivo</option>
-    </select>
-    <span class="subtitulo" id="subtitulo-agente">Pide cualquier cosa — el agente ejecuta</span>
+    <button class="btn-menu" onclick="abrirMenu()" id="btn-menu"></button>
+    <div class="dropdown-agente" id="dropdown-agente">
+      <button class="dd-boton" onclick="toggleDropdown(event)">
+        <span class="dd-icono" id="dd-icono-activo"></span>
+        <span id="dd-texto-activo">General</span>
+        <span class="dd-flecha" id="dd-flecha"></span>
+      </button>
+      <div class="dd-lista" id="dd-lista"></div>
+    </div>
+    <span class="subtitulo">Pide cualquier cosa — el agente ejecuta</span>
   </div>
 
   <div id="mensajes">
-    <!-- Pantalla de bienvenida inicial -->
     <div class="bienvenida" id="bienvenida">
-      <div class="icono">🧭</div>
+      <div class="icono-grande ico" id="ico-bienvenida"></div>
       <h2>¿En qué trabajamos hoy?</h2>
       <p>Escribe lo que necesites en lenguaje natural. El agente razona, elige sus herramientas y ejecuta la tarea — genera imágenes, escribe código, crea documentos y más.</p>
     </div>
@@ -437,29 +248,108 @@ body {
       <textarea id="entrada" rows="1" placeholder="Escribe tu mensaje…"
         onkeydown="if(event.key==='Enter'&&!event.shiftKey){event.preventDefault();enviar();}"
         oninput="autoCrecer(this)"></textarea>
-      <button class="btn-enviar" id="btn-enviar" onclick="enviar()">➤</button>
+      <button class="btn-enviar" id="btn-enviar" onclick="enviar()"></button>
     </div>
   </div>
 </main>
 
 <script>
 /* ═══════════════════════════════════════════════
-   CONFIGURACIÓN
-   API_BASE vacío = rutas relativas. Cuando el propio backend
-   sirve esta página, los fetch van solos al servidor correcto.
+   ICONOS SVG (estilo línea, tipo Lucide)
+   Se dibujan con trazo del color que herede el contenedor,
+   así se tiñen con el oro o el aqua según dónde estén.
    ═══════════════════════════════════════════════ */
-const API_BASE = "";           // '' = mismo servidor que sirve esta página
-const USUARIO = "yoel";        // dueño (luego será la API key de cada cliente)
+const ICONOS = {
+  compass:  '<circle cx="12" cy="12" r="10"/><polygon points="16.24 7.76 14.12 14.12 7.76 16.24 9.88 9.88 16.24 7.76"/>',
+  crown:    '<path d="m2 4 3 12h14l3-12-6 7-4-7-4 7-6-7z"/><path d="M5 20h14"/>',
+  code:     '<polyline points="16 18 22 12 16 6"/><polyline points="8 6 2 12 8 18"/>',
+  palette:  '<circle cx="13.5" cy="6.5" r=".5" fill="currentColor"/><circle cx="17.5" cy="10.5" r=".5" fill="currentColor"/><circle cx="8.5" cy="7.5" r=".5" fill="currentColor"/><circle cx="6.5" cy="12.5" r=".5" fill="currentColor"/><path d="M12 2C6.5 2 2 6.5 2 12s4.5 10 10 10c.926 0 1.648-.746 1.648-1.688 0-.437-.18-.835-.437-1.125-.29-.289-.438-.652-.438-1.125a1.64 1.64 0 0 1 1.668-1.668h1.996c3.051 0 5.555-2.503 5.555-5.554C21.965 6.012 17.461 2 12 2z"/>',
+  dollar:   '<line x1="12" y1="1" x2="12" y2="23"/><path d="M17 5H9.5a3.5 3.5 0 0 0 0 7h5a3.5 3.5 0 0 1 0 7H6"/>',
+  megaphone:'<path d="m3 11 18-5v12L3 14v-3z"/><path d="M11.6 16.8a3 3 0 1 1-5.8-1.6"/>',
+  scale:    '<path d="m16 16 3-8 3 8c-.87.65-1.92 1-3 1s-2.13-.35-3-1Z"/><path d="m2 16 3-8 3 8c-.87.65-1.92 1-3 1s-2.13-.35-3-1Z"/><path d="M7 21h10"/><path d="M12 3v18"/><path d="M3 7h2c2 0 5-1 7-2 2 1 5 2 7 2h2"/>',
+  chart:    '<line x1="18" y1="20" x2="18" y2="10"/><line x1="12" y1="20" x2="12" y2="4"/><line x1="6" y1="20" x2="6" y2="14"/>',
+  plus:     '<line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/>',
+  send:     '<line x1="22" y1="2" x2="11" y2="13"/><polygon points="22 2 15 22 11 13 2 9 22 2"/>',
+  menu:     '<line x1="3" y1="12" x2="21" y2="12"/><line x1="3" y1="6" x2="21" y2="6"/><line x1="3" y1="18" x2="21" y2="18"/>',
+  trash:    '<polyline points="3 6 5 6 21 6"/><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"/>',
+  save:     '<path d="M19 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11l5 5v11a2 2 0 0 1-2 2z"/><polyline points="17 21 17 13 7 13 7 21"/><polyline points="7 3 7 8 15 8"/>',
+  image:    '<rect x="3" y="3" width="18" height="18" rx="2" ry="2"/><circle cx="8.5" cy="8.5" r="1.5"/><polyline points="21 15 16 10 5 21"/>',
+  audio:    '<polygon points="11 5 6 9 2 9 2 15 6 15 11 19 11 5"/><path d="M19.07 4.93a10 10 0 0 1 0 14.14M15.54 8.46a5 5 0 0 1 0 7.07"/>',
+  video:    '<polygon points="23 7 16 12 23 17 23 7"/><rect x="1" y="5" width="15" height="14" rx="2" ry="2"/>',
+  pdf:      '<path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/><line x1="16" y1="13" x2="8" y2="13"/><line x1="16" y1="17" x2="8" y2="17"/>',
+  terminal: '<polyline points="4 17 10 11 4 5"/><line x1="12" y1="19" x2="20" y2="19"/>',
+  libro:    '<path d="M2 3h6a4 4 0 0 1 4 4v14a3 3 0 0 0-3-3H2z"/><path d="M22 3h-6a4 4 0 0 0-4 4v14a3 3 0 0 1 3-3h7z"/>',
+  carpeta:  '<path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z"/>',
+  chevron:  '<polyline points="6 9 12 15 18 9"/>',
+  check:    '<polyline points="20 6 9 17 4 12"/>',
+  x:        '<line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/>',
+  engranaje:'<circle cx="12" cy="12" r="3"/><path d="M12 1v6m0 6v6M4.2 4.2l4.3 4.3m7 7 4.3 4.3M1 12h6m6 0h6M4.2 19.8l4.3-4.3m7-7 4.3-4.3"/>'
+};
+function icono(nombre, tam) {
+  const p = ICONOS[nombre] || ICONOS.engranaje;
+  return `<svg width="${tam||18}" height="${tam||18}" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">${p}</svg>`;
+}
 
-let conversacionActual = null; // id de la conversación abierta
+/* ═══════════════════════════════════════════════
+   CONFIGURACIÓN
+   ═══════════════════════════════════════════════ */
+const API_BASE = "";
+const USUARIO = "yoel";
+let conversacionActual = null;
+let agenteActivo = "general";
 let enviando = false;
 
-/* ─── Arranque: cargar conversaciones y probar conexión ─── */
+/* Agentes del menú desplegable (cada uno con su icono SVG) */
+const AGENTES_UI = [
+  { id:"general",     nombre:"General",            desc:"orquestador", icono:"compass" },
+  { id:"ceo",         nombre:"CEO Fundora Prime",   icono:"crown" },
+  { id:"programador", nombre:"Programador",         icono:"code" },
+  { id:"director",    nombre:"Director creativo",   icono:"palette" },
+  { id:"financiero",  nombre:"Financiero",          icono:"dollar" },
+  { id:"marketing",   nombre:"Marketing",           icono:"megaphone" },
+  { id:"abogado",     nombre:"Abogado",             icono:"scale" },
+  { id:"analista",    nombre:"Analista deportivo",  icono:"chart" }
+];
+
+/* Pintar los iconos fijos de la interfaz al cargar */
+function pintarIconosFijos() {
+  document.getElementById("ico-nueva").innerHTML     = icono("plus", 18);
+  document.getElementById("btn-menu").innerHTML      = icono("menu", 22);
+  document.getElementById("btn-enviar").innerHTML    = icono("send", 18);
+  document.getElementById("dd-flecha").innerHTML     = icono("chevron", 16);
+  document.getElementById("ico-bienvenida").innerHTML= icono("compass", 52);
+  elegirAgente("general"); // fija el icono/nombre del agente inicial
+}
+
+/* ─── Menú desplegable de agentes ─── */
+function pintarDropdown() {
+  document.getElementById("dd-lista").innerHTML = AGENTES_UI.map(a => `
+    <div class="dd-opcion" onclick="elegirAgente('${a.id}')">
+      <span class="op-icono">${icono(a.icono, 18)}</span>
+      <span>${a.nombre}</span>
+      ${a.desc ? `<span class="op-desc">${a.desc}</span>` : ''}
+    </div>`).join("");
+}
+function toggleDropdown(e) { if(e) e.stopPropagation(); document.getElementById("dd-lista").classList.toggle("abierta"); }
+function elegirAgente(id) {
+  agenteActivo = id;
+  const a = AGENTES_UI.find(x => x.id === id) || AGENTES_UI[0];
+  document.getElementById("dd-icono-activo").innerHTML = icono(a.icono, 18);
+  document.getElementById("dd-texto-activo").textContent = a.nombre;
+  document.getElementById("dd-lista").classList.remove("abierta");
+}
+document.addEventListener("click", e => {
+  if (!e.target.closest("#dropdown-agente")) document.getElementById("dd-lista").classList.remove("abierta");
+});
+
+/* ─── Arranque ─── */
 async function iniciar() {
+  pintarIconosFijos();
+  pintarDropdown();
   await cargarConversaciones();
 }
 
-/* ─── Cargar la lista del menú lateral ─── */
+/* ─── Cargar lista del menú lateral ─── */
 async function cargarConversaciones() {
   try {
     const resp = await fetch(`${API_BASE}/conversaciones?usuario=${USUARIO}`);
@@ -467,13 +357,10 @@ async function cargarConversaciones() {
     marcarConexion(true);
     pintarLista(Array.isArray(lista) ? lista : []);
   } catch (e) {
-    // Sin backend (ej. vista previa): mostramos ejemplos para ver el diseño
     marcarConexion(false);
     pintarLista(CONVERSACIONES_DEMO);
   }
 }
-
-/* ─── Pintar la lista de conversaciones ─── */
 function pintarLista(lista) {
   const cont = document.getElementById("lista-conversaciones");
   if (!lista.length) {
@@ -486,12 +373,10 @@ function pintarLista(lista) {
         <div class="titulo">${escapar(c.titulo || 'Sin título')}</div>
         <div class="agente-tag">${escapar(c.agente || 'general')}</div>
       </div>
-      <span class="borrar" onclick="event.stopPropagation();borrar('${c.id}')">🗑</span>
-    </div>
-  `).join("");
+      <span class="borrar ico" onclick="event.stopPropagation();borrar('${c.id}')">${icono('trash',16)}</span>
+    </div>`).join("");
 }
 
-/* ─── Abrir una conversación y cargar sus mensajes ─── */
 async function abrirConversacion(id) {
   conversacionActual = id;
   cerrarMenu();
@@ -499,18 +384,14 @@ async function abrirConversacion(id) {
     const resp = await fetch(`${API_BASE}/conversaciones/${id}`);
     const data = await resp.json();
     pintarMensajes(data.mensajes || []);
-  } catch (e) {
-    pintarMensajes(MENSAJES_DEMO);   // demo si no hay backend
-  }
-  cargarConversaciones(); // refrescar para resaltar la activa
+  } catch (e) { pintarMensajes(MENSAJES_DEMO); }
+  cargarConversaciones();
 }
-
-/* ─── Botón "nueva conversación" ─── */
 function nuevaConversacion() {
   conversacionActual = null;
   document.getElementById("mensajes").innerHTML = `
     <div class="bienvenida">
-      <div class="icono">🧭</div>
+      <div class="icono-grande ico">${icono('compass',52)}</div>
       <h2>Nueva conversación</h2>
       <p>Escribe tu primer mensaje y el agente se pone a trabajar.</p>
     </div>`;
@@ -518,123 +399,91 @@ function nuevaConversacion() {
   cargarConversaciones();
 }
 
-/* ─── Enviar un mensaje al agente (motor de herramientas) ─── */
+/* ─── Enviar mensaje al agente ─── */
 async function enviar() {
   const entrada = document.getElementById("entrada");
   const texto = entrada.value.trim();
   if (!texto || enviando) return;
-
   enviando = true;
   document.getElementById("btn-enviar").disabled = true;
-  entrada.value = "";
-  autoCrecer(entrada);
-
+  entrada.value = ""; autoCrecer(entrada);
   quitarBienvenida();
-  agregarMensaje("usuario", texto);          // pinta tu mensaje
-  const indicador = agregarPensando();       // pinta "trabajando…"
-
-  const agente = document.getElementById("selector-agente").value;
-
+  agregarMensaje("usuario", texto);
+  const indicador = agregarPensando();
   try {
     const resp = await fetch(`${API_BASE}/agente`, {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ mensaje: texto, agente, conversacion_id: conversacionActual, usuario: USUARIO })
+      method: "POST", headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ mensaje: texto, agente: agenteActivo, conversacion_id: conversacionActual, usuario: USUARIO })
     });
     const data = await resp.json();
     indicador.remove();
-
-    // Guardar el id si era conversación nueva
     if (data.conversacion_id) conversacionActual = data.conversacion_id;
-
     agregarMensaje("ia", data.respuesta || "Listo.", data.pasos, data.artefactos);
-    cargarConversaciones();   // refrescar el menú lateral
+    cargarConversaciones();
   } catch (e) {
     indicador.remove();
-    // Demo: si no hay backend, mostramos una respuesta de ejemplo con rastro
     agregarMensaje("ia", "Esta es una vista previa del diseño. Cuando el Studio corra en tu servidor, aquí verás la respuesta real del agente con su rastro de trabajo.", RASTRO_DEMO, null);
   }
-
   enviando = false;
   document.getElementById("btn-enviar").disabled = false;
 }
 
-/* ─── Pintar un mensaje en el chat ─── */
 function agregarMensaje(tipo, texto, pasos, artefactos) {
   const cont = document.getElementById("mensajes");
   const div = document.createElement("div");
   div.className = `mensaje ${tipo}`;
-
-  const avatar = tipo === "usuario"
-    ? `<div class="avatar yo">TÚ</div>`
-    : `<div class="avatar ia">F</div>`;
-
+  const avatar = tipo === "usuario" ? `<div class="avatar yo">TÚ</div>` : `<div class="avatar ia">F</div>`;
   let extra = "";
-  // Rastro de herramientas (el elemento estrella)
   if (pasos && pasos.length) {
     extra += `<div class="rastro">` + pasos.map(p => `
       <div class="paso">
-        <span class="icono-paso">${iconoHerramienta(p.herramienta)}</span>
+        <span class="icono-paso">${icono(iconoHerramienta(p.herramienta),15)}</span>
         <span>${nombreHerramienta(p.herramienta)}</span>
-        <span class="check">${p.ok === false ? '✕' : '✓'}</span>
+        <span class="check ${p.ok===false?'fallo':''}">${icono(p.ok===false?'x':'check',15)}</span>
       </div>`).join("") + `</div>`;
   }
-  // Multimedia generada
   if (artefactos && artefactos.length) {
     extra += `<div class="artefacto">` + artefactos.map(a => renderArtefacto(a)).join("") + `</div>`;
   }
-
   div.innerHTML = `${avatar}<div><div class="burbuja">${escapar(texto)}</div>${extra}</div>`;
   cont.appendChild(div);
   cont.scrollTop = cont.scrollHeight;
 }
-
-/* ─── Indicador "el agente está trabajando" ─── */
 function agregarPensando() {
   const cont = document.getElementById("mensajes");
   const div = document.createElement("div");
   div.className = "mensaje ia";
   div.innerHTML = `<div class="avatar ia">F</div><div class="burbuja"><div class="pensando"><span></span><span></span><span></span></div></div>`;
-  cont.appendChild(div);
-  cont.scrollTop = cont.scrollHeight;
+  cont.appendChild(div); cont.scrollTop = cont.scrollHeight;
   return div;
 }
-
-/* ─── Renderizar imagen / audio / pdf ─── */
 function renderArtefacto(a) {
   if (a.tipo === "imagen" && a.imagen) return `<img src="${a.imagen}" alt="imagen generada">`;
   if (a.tipo === "audio" && a.audio)   return `<audio controls src="${a.audio}"></audio>`;
-  if (a.tipo === "pdf")   return `<div class="chip-archivo">📄 Documento PDF generado</div>`;
-  if (a.tipo === "imagen") return `<div class="chip-archivo">🎨 Imagen generada</div>`;
-  if (a.tipo === "audio")  return `<div class="chip-archivo">🔊 Audio generado</div>`;
-  return `<div class="chip-archivo">📦 ${escapar(a.tipo || 'archivo')}</div>`;
+  const mapa = { imagen:['image','Imagen generada'], audio:['audio','Audio generado'], video:['video','Video generado'], pdf:['pdf','Documento PDF generado'] };
+  const m = mapa[a.tipo] || ['carpeta', a.tipo || 'archivo'];
+  return `<div class="chip-archivo"><span class="ico">${icono(m[0],16)}</span> ${escapar(m[1])}</div>`;
 }
-
-/* ─── Borrar una conversación ─── */
 async function borrar(id) {
   if (!confirm("¿Borrar esta conversación?")) return;
   try { await fetch(`${API_BASE}/conversaciones/${id}`, { method: "DELETE" }); } catch(e) {}
   if (id === conversacionActual) nuevaConversacion();
   cargarConversaciones();
 }
-
-/* ─── Pintar mensajes de una conversación cargada ─── */
 function pintarMensajes(mensajes) {
   document.getElementById("mensajes").innerHTML = "";
   if (!mensajes.length) { quitarBienvenida(); return; }
-  mensajes.forEach(m => {
-    agregarMensaje(m.rol === "user" ? "usuario" : "ia", m.contenido || "", m.pasos, m.artefactos);
-  });
+  mensajes.forEach(m => agregarMensaje(m.rol === "user" ? "usuario" : "ia", m.contenido || "", m.pasos, m.artefactos));
 }
 
 /* ─── Utilidades ─── */
 function iconoHerramienta(h) {
-  const iconos = { escribir_codigo:"🔧", guardar_archivo:"💾", generar_imagen:"🎨", generar_audio:"🔊", generar_video:"🎬", generar_pdf:"📄", ejecutar_comando:"⌨️", leer_archivo:"📖", listar_archivos:"📁" };
-  return iconos[h] || "⚙️";
+  const m = { escribir_codigo:"code", guardar_archivo:"save", generar_imagen:"image", generar_audio:"audio", generar_video:"video", generar_pdf:"pdf", ejecutar_comando:"terminal", leer_archivo:"libro", listar_archivos:"carpeta" };
+  return m[h] || "engranaje";
 }
 function nombreHerramienta(h) {
-  const nombres = { escribir_codigo:"Escribió código", guardar_archivo:"Guardó el archivo", generar_imagen:"Generó una imagen", generar_audio:"Generó audio", generar_video:"Generó video", generar_pdf:"Creó un PDF", ejecutar_comando:"Ejecutó un comando", leer_archivo:"Leyó un archivo", listar_archivos:"Listó archivos" };
-  return nombres[h] || h;
+  const m = { escribir_codigo:"Escribió código", guardar_archivo:"Guardó el archivo", generar_imagen:"Generó una imagen", generar_audio:"Generó audio", generar_video:"Generó video", generar_pdf:"Creó un PDF", ejecutar_comando:"Ejecutó un comando", leer_archivo:"Leyó un archivo", listar_archivos:"Listó archivos" };
+  return m[h] || h;
 }
 function escapar(t) { const d = document.createElement("div"); d.textContent = t || ""; return d.innerHTML; }
 function quitarBienvenida() { const b = document.getElementById("bienvenida"); if (b) b.remove(); }
@@ -643,20 +492,16 @@ function marcarConexion(ok) {
   document.getElementById("punto-estado").className = "punto-estado" + (ok ? "" : " offline");
   document.getElementById("texto-estado").textContent = ok ? "Conectado" : "Vista previa (sin servidor)";
 }
-/* Menú móvil */
 function abrirMenu() { document.getElementById("sidebar").classList.add("abierto"); document.getElementById("velo").classList.add("visible"); }
 function cerrarMenu() { document.getElementById("sidebar").classList.remove("abierto"); document.getElementById("velo").classList.remove("visible"); }
 
-/* ═══ Datos de DEMO (solo se usan en la vista previa sin servidor) ═══ */
+/* Datos demo (solo vista previa sin servidor) */
 const CONVERSACIONES_DEMO = [
   { id:"demo1", titulo:"Función de costeo de importación", agente:"programador" },
   { id:"demo2", titulo:"Logo para campaña de verano", agente:"director" },
   { id:"demo3", titulo:"Análisis de márgenes PAS", agente:"financiero" }
 ];
-const RASTRO_DEMO = [
-  { herramienta:"escribir_codigo", ok:true },
-  { herramienta:"guardar_archivo", ok:true }
-];
+const RASTRO_DEMO = [ { herramienta:"escribir_codigo", ok:true }, { herramienta:"guardar_archivo", ok:true } ];
 const MENSAJES_DEMO = [
   { rol:"user", contenido:"Escribe una función de costeo y guárdala en costeo.js" },
   { rol:"assistant", contenido:"Listo. Escribí la función calcularPrecioFinal (costo, flete, arancel, margen) y la guardé en costeo.js.", pasos:RASTRO_DEMO }

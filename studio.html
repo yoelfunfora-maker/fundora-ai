@@ -154,8 +154,27 @@ svg { display: block; }
 @keyframes latido { 0%, 60%, 100% { opacity: 0.3; transform: scale(0.8); } 30% { opacity: 1; transform: scale(1); } }
 
 .artefacto { margin-top: 10px; }
-.artefacto img { max-width: 320px; border-radius: 10px; border: 1px solid var(--borde); }
-.artefacto audio { width: 280px; margin-top: 6px; }
+/* Contenedor de cada pieza generada (imagen, video, audio) */
+.media { position: relative; display: inline-block; margin-top: 4px; max-width: 100%; }
+.media img { max-width: 340px; max-height: 340px; border-radius: 10px; border: 1px solid var(--borde); cursor: zoom-in; display: block; }
+.media video { max-width: 360px; border-radius: 10px; border: 1px solid var(--borde); display: block; background: #000; }
+.media.audio { display: flex; align-items: center; gap: 10px; background: var(--oceano); border: 1px solid var(--borde); border-radius: 10px; padding: 10px 12px; }
+.media.audio audio { height: 34px; }
+/* Botones flotantes sobre la pieza (descargar / ampliar) */
+.media-acciones { position: absolute; top: 8px; right: 8px; display: flex; gap: 6px; }
+.media.audio .media-acciones { position: static; }
+.media-btn { background: rgba(6,16,25,0.82); border: 1px solid var(--borde); color: var(--texto); width: 34px; height: 34px; border-radius: 8px; cursor: pointer; display: flex; align-items: center; justify-content: center; }
+.media-btn:hover { color: var(--oro); border-color: var(--oro); }
+/* Fallback: cuando el video llega como frames sueltos (sin ffmpeg) */
+.media-frames { display: flex; gap: 6px; flex-wrap: wrap; margin-top: 4px; }
+.media-frames img { width: 92px; border-radius: 6px; border: 1px solid var(--borde); cursor: zoom-in; }
+
+/* Visor a pantalla completa (lightbox) */
+#lightbox { display: none; position: fixed; inset: 0; z-index: 100; background: rgba(3,8,14,0.96); align-items: center; justify-content: center; padding: 24px; }
+#lightbox.visible { display: flex; }
+#lightbox img { max-width: 100%; max-height: 100%; border-radius: 8px; object-fit: contain; }
+.lb-cerrar { position: absolute; top: 20px; right: 20px; background: rgba(255,255,255,0.08); border: 1px solid rgba(255,255,255,0.15); color: #fff; width: 46px; height: 46px; border-radius: 50%; cursor: pointer; display: flex; align-items: center; justify-content: center; }
+.lb-cerrar:hover { background: rgba(255,255,255,0.16); }
 .chip-archivo {
   display: inline-flex; align-items: center; gap: 8px;
   background: var(--oceano); border: 1px solid var(--borde);
@@ -310,6 +329,12 @@ body.modo-monitor #vista-monitor { display: flex; }
   </div>
 </main>
 
+<!-- Visor a pantalla completa (se abre al tocar una imagen) -->
+<div id="lightbox" onclick="cerrarLightbox()">
+  <button class="lb-cerrar" onclick="cerrarLightbox()" id="lb-cerrar"></button>
+  <img id="lightbox-img" src="" alt="" onclick="event.stopPropagation()">
+</div>
+
 <script>
 /* ═══════════════════════════════════════════════
    ICONOS SVG (estilo línea, tipo Lucide)
@@ -346,7 +371,9 @@ const ICONOS = {
   cpu:      '<rect x="4" y="4" width="16" height="16" rx="2"/><rect x="9" y="9" width="6" height="6"/><line x1="9" y1="1" x2="9" y2="4"/><line x1="15" y1="1" x2="15" y2="4"/><line x1="9" y1="20" x2="9" y2="23"/><line x1="15" y1="20" x2="15" y2="23"/><line x1="20" y1="9" x2="23" y2="9"/><line x1="20" y1="14" x2="23" y2="14"/><line x1="1" y1="9" x2="4" y2="9"/><line x1="1" y1="14" x2="4" y2="14"/>',
   database: '<ellipse cx="12" cy="5" rx="9" ry="3"/><path d="M21 12c0 1.66-4 3-9 3s-9-1.34-9-3"/><path d="M3 5v14c0 1.66 4 3 9 3s9-1.34 9-3V5"/>',
   activity: '<polyline points="22 12 18 12 15 21 9 3 6 12 2 12"/>',
-  chat:     '<path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/>'
+  chat:     '<path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/>',
+  download: '<path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/>',
+  maximizar:'<polyline points="15 3 21 3 21 9"/><polyline points="9 21 3 21 3 15"/><line x1="21" y1="3" x2="14" y2="10"/><line x1="3" y1="21" x2="10" y2="14"/>'
 };
 function icono(nombre, tam) {
   const p = ICONOS[nombre] || ICONOS.engranaje;
@@ -383,6 +410,7 @@ function pintarIconosFijos() {
   document.getElementById("ico-bienvenida").innerHTML= icono("compass", 52);
   document.getElementById("ico-tv-chat").innerHTML   = icono("chat", 16);
   document.getElementById("ico-tv-monitor").innerHTML= icono("activity", 16);
+  document.getElementById("lb-cerrar").innerHTML     = icono("x", 22);
   elegirAgente("general"); // fija el icono/nombre del agente inicial
 }
 
@@ -522,12 +550,74 @@ function agregarPensando() {
   cont.appendChild(div); cont.scrollTop = cont.scrollHeight;
   return div;
 }
+/* Registro de piezas generadas, para descargar/ampliar sin meter el base64 en el HTML */
+const MEDIA = {};
+let _mediaSeq = 0;
+
 function renderArtefacto(a) {
-  if (a.tipo === "imagen" && a.imagen) return `<img src="${a.imagen}" alt="imagen generada">`;
-  if (a.tipo === "audio" && a.audio)   return `<audio controls src="${a.audio}"></audio>`;
+  const id = "m" + (_mediaSeq++);
+
+  // IMAGEN — se ve, se amplía al tocar, se descarga
+  if (a.tipo === "imagen" && a.imagen) {
+    MEDIA[id] = { url: a.imagen, nombre: "fundora-imagen.jpg" };
+    return `<div class="media">
+      <img src="${a.imagen}" alt="imagen generada" onclick="ampliar('${id}')">
+      <div class="media-acciones">
+        <button class="media-btn" title="Ampliar" onclick="ampliar('${id}')">${icono('maximizar',16)}</button>
+        <button class="media-btn" title="Descargar" onclick="descargar('${id}')">${icono('download',16)}</button>
+      </div>
+    </div>`;
+  }
+
+  // VIDEO — reproductor real (con pantalla completa nativa) + descarga
+  if (a.tipo === "video" && a.video) {
+    MEDIA[id] = { url: a.video, nombre: "fundora-video.mp4" };
+    return `<div class="media">
+      <video src="${a.video}" controls playsinline preload="metadata"></video>
+      <div class="media-acciones">
+        <button class="media-btn" title="Descargar" onclick="descargar('${id}')">${icono('download',16)}</button>
+      </div>
+    </div>`;
+  }
+  // VIDEO alterno — llegó como frames sueltos (cuando ffmpeg no está)
+  if (a.tipo === "video" && a.imagenes && a.imagenes.length) {
+    return `<div class="media-frames">` + a.imagenes.map(im => {
+      const fid = "m" + (_mediaSeq++); MEDIA[fid] = { url: im, nombre: "frame.jpg" };
+      return `<img src="${im}" onclick="ampliar('${fid}')">`;
+    }).join("") + `</div>`;
+  }
+
+  // AUDIO — reproductor + descarga
+  if (a.tipo === "audio" && a.audio) {
+    MEDIA[id] = { url: a.audio, nombre: "fundora-audio.mp3" };
+    return `<div class="media audio">
+      <audio src="${a.audio}" controls preload="metadata"></audio>
+      <div class="media-acciones"><button class="media-btn" title="Descargar" onclick="descargar('${id}')">${icono('download',16)}</button></div>
+    </div>`;
+  }
+
+  // Otros (pdf, etc.) o histórico sin base64 → chip informativo
   const mapa = { imagen:['image','Imagen generada'], audio:['audio','Audio generado'], video:['video','Video generado'], pdf:['pdf','Documento PDF generado'] };
   const m = mapa[a.tipo] || ['carpeta', a.tipo || 'archivo'];
   return `<div class="chip-archivo"><span class="ico">${icono(m[0],16)}</span> ${escapar(m[1])}</div>`;
+}
+
+/* Descargar una pieza (funciona con data URIs) */
+function descargar(id) {
+  const m = MEDIA[id]; if (!m) return;
+  const a = document.createElement("a");
+  a.href = m.url; a.download = m.nombre;
+  document.body.appendChild(a); a.click(); a.remove();
+}
+/* Ampliar una imagen a pantalla completa */
+function ampliar(id) {
+  const m = MEDIA[id]; if (!m) return;
+  document.getElementById("lightbox-img").src = m.url;
+  document.getElementById("lightbox").classList.add("visible");
+}
+function cerrarLightbox() {
+  document.getElementById("lightbox").classList.remove("visible");
+  document.getElementById("lightbox-img").src = "";
 }
 async function borrar(id) {
   if (!confirm("¿Borrar esta conversación?")) return;

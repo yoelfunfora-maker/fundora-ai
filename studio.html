@@ -154,18 +154,20 @@ svg { display: block; }
 @keyframes latido { 0%, 60%, 100% { opacity: 0.3; transform: scale(0.8); } 30% { opacity: 1; transform: scale(1); } }
 
 .artefacto { margin-top: 10px; }
-/* Contenedor de cada pieza generada (imagen, video, audio) */
-.media { position: relative; display: inline-block; margin-top: 4px; max-width: 100%; }
-.media img { max-width: 340px; max-height: 340px; border-radius: 10px; border: 1px solid var(--borde); cursor: zoom-in; display: block; }
-.media video { max-width: 360px; border-radius: 10px; border: 1px solid var(--borde); display: block; background: #000; }
+/* Cada pieza generada = imagen/video arriba + barra de acciones abajo */
+.media { display: inline-block; margin-top: 4px; max-width: 100%; }
+.media img { max-width: 340px; max-height: 340px; border-radius: 10px 10px 0 0; border: 1px solid var(--borde); cursor: zoom-in; display: block; }
+.media video { max-width: 360px; border-radius: 10px 10px 0 0; border: 1px solid var(--borde); display: block; background: #000; }
+/* Barra de botones debajo (siempre visible, cómoda en móvil) */
+.media-barra { display: flex; gap: 1px; background: var(--borde); border: 1px solid var(--borde); border-top: none; border-radius: 0 0 10px 10px; overflow: hidden; }
+.media-btn { flex: 1; display: flex; align-items: center; justify-content: center; gap: 7px; background: var(--oceano); color: var(--texto-suave); border: none; padding: 11px; font-family: 'Inter'; font-size: 13px; font-weight: 500; cursor: pointer; }
+.media-btn:hover { background: var(--superficie-alta); color: var(--oro); }
+.media-btn .ico { display: flex; }
+/* Audio: reproductor + botón en una fila */
 .media.audio { display: flex; align-items: center; gap: 10px; background: var(--oceano); border: 1px solid var(--borde); border-radius: 10px; padding: 10px 12px; }
 .media.audio audio { height: 34px; }
-/* Botones flotantes sobre la pieza (descargar / ampliar) */
-.media-acciones { position: absolute; top: 8px; right: 8px; display: flex; gap: 6px; }
-.media.audio .media-acciones { position: static; }
-.media-btn { background: rgba(6,16,25,0.82); border: 1px solid var(--borde); color: var(--texto); width: 34px; height: 34px; border-radius: 8px; cursor: pointer; display: flex; align-items: center; justify-content: center; }
-.media-btn:hover { color: var(--oro); border-color: var(--oro); }
-/* Fallback: cuando el video llega como frames sueltos (sin ffmpeg) */
+.media.audio .media-btn { flex: none; background: none; padding: 7px 12px; border-radius: 7px; border: 1px solid var(--borde); }
+/* Fallback: video como frames sueltos (sin ffmpeg) */
 .media-frames { display: flex; gap: 6px; flex-wrap: wrap; margin-top: 4px; }
 .media-frames img { width: 92px; border-radius: 6px; border: 1px solid var(--borde); cursor: zoom-in; }
 
@@ -557,29 +559,29 @@ let _mediaSeq = 0;
 function renderArtefacto(a) {
   const id = "m" + (_mediaSeq++);
 
-  // IMAGEN — se ve, se amplía al tocar, se descarga
+  // IMAGEN — se ve, se amplía al tocar, barra con Ampliar + Descargar
   if (a.tipo === "imagen" && a.imagen) {
     MEDIA[id] = { url: a.imagen, nombre: "fundora-imagen.jpg" };
     return `<div class="media">
       <img src="${a.imagen}" alt="imagen generada" onclick="ampliar('${id}')">
-      <div class="media-acciones">
-        <button class="media-btn" title="Ampliar" onclick="ampliar('${id}')">${icono('maximizar',16)}</button>
-        <button class="media-btn" title="Descargar" onclick="descargar('${id}')">${icono('download',16)}</button>
+      <div class="media-barra">
+        <button class="media-btn" onclick="ampliar('${id}')"><span class="ico">${icono('maximizar',15)}</span> Ampliar</button>
+        <button class="media-btn" onclick="descargar('${id}')"><span class="ico">${icono('download',15)}</span> Descargar</button>
       </div>
     </div>`;
   }
 
-  // VIDEO — reproductor real (con pantalla completa nativa) + descarga
+  // VIDEO — reproductor real (pantalla completa nativa) + barra con Descargar
   if (a.tipo === "video" && a.video) {
     MEDIA[id] = { url: a.video, nombre: "fundora-video.mp4" };
     return `<div class="media">
       <video src="${a.video}" controls playsinline preload="metadata"></video>
-      <div class="media-acciones">
-        <button class="media-btn" title="Descargar" onclick="descargar('${id}')">${icono('download',16)}</button>
+      <div class="media-barra">
+        <button class="media-btn" onclick="descargar('${id}')"><span class="ico">${icono('download',15)}</span> Descargar</button>
       </div>
     </div>`;
   }
-  // VIDEO alterno — llegó como frames sueltos (cuando ffmpeg no está)
+  // VIDEO alterno — frames sueltos (cuando ffmpeg no está)
   if (a.tipo === "video" && a.imagenes && a.imagenes.length) {
     return `<div class="media-frames">` + a.imagenes.map(im => {
       const fid = "m" + (_mediaSeq++); MEDIA[fid] = { url: im, nombre: "frame.jpg" };
@@ -587,12 +589,12 @@ function renderArtefacto(a) {
     }).join("") + `</div>`;
   }
 
-  // AUDIO — reproductor + descarga
+  // AUDIO — reproductor + Descargar
   if (a.tipo === "audio" && a.audio) {
     MEDIA[id] = { url: a.audio, nombre: "fundora-audio.mp3" };
     return `<div class="media audio">
       <audio src="${a.audio}" controls preload="metadata"></audio>
-      <div class="media-acciones"><button class="media-btn" title="Descargar" onclick="descargar('${id}')">${icono('download',16)}</button></div>
+      <button class="media-btn" onclick="descargar('${id}')"><span class="ico">${icono('download',15)}</span> Descargar</button>
     </div>`;
   }
 

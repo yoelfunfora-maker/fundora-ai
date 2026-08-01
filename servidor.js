@@ -784,7 +784,21 @@ const HERRAMIENTAS = {
 };
 
 // Loop ReAct: el modelo razona → usa herramientas → ve resultados → continúa
-async function ejecutarConHerramientas(mensaje, agenteId = "general", maxIteraciones = 6) {
+// Red de seguridad: si el modelo devuelve el JSON interno ({"accion":...,"texto":"..."})
+// en vez de texto natural, extraemos SOLO el campo legible para que el usuario no vea las tripas.
+function limpiarRespuesta(texto) {
+  if (typeof texto !== "string") return texto;
+  let t = texto.trim().replace(/^```(json)?/i, "").replace(/```$/, "").trim();
+  if (t.startsWith("{") && /"texto"\s*:/.test(t)) {
+    try {
+      const o = JSON.parse(t);
+      if (o && typeof o.texto === "string" && o.texto.trim()) return o.texto.trim();
+    } catch(e) {}
+  }
+  return texto;
+}
+
+async function ejecutarConHerramientas(mensaje, agenteId = "general", maxIteraciones = 6, historialPrevio = []) {
   const config = AGENTES[agenteId] || AGENTES.general;
   const historial = [
     { role: "system", content: config.system + `
@@ -795,7 +809,10 @@ REGLAS ABSOLUTAS DE USO DE HERRAMIENTAS:
 1. NUNCA anuncies ni describas que vas a usar una herramienta. NO escribas frases como "ahora procederé a...", "utilizaremos la función...", "vamos a guardar...". En lugar de decirlo, HAZLO: emite la llamada a la herramienta directamente.
 2. Si la tarea necesita varios pasos (ej: escribir código Y guardarlo en un archivo), ejecuta las herramientas UNA TRAS OTRA. Después de escribir_codigo, si hay que guardarlo, llama a guardar_archivo INMEDIATAMENTE en tu siguiente turno.
 3. NO te detengas a mitad de una tarea. Sigue llamando herramientas hasta que TODO esté hecho.
-4. Solo responde con texto normal cuando TODAS las herramientas necesarias ya se ejecutaron y la tarea está 100% completa. Ese texto final debe ser en español, breve, explicando lo que hiciste.` },
+4. Solo responde con texto normal cuando TODAS las herramientas necesarias ya se ejecutaron y la tarea está 100% completa. Ese texto final debe ser en español, breve, explicando lo que hiciste.
+5. FORMATO DE TU RESPUESTA FINAL: SIEMPRE texto plano en español, natural y directo, como hablaría una persona. NUNCA respondas en JSON ni con estructuras tipo {"accion":...} o {"texto":...} — eso son tripas internas que el usuario JAMÁS debe ver.
+6. CONTEXTO: recuerdas los mensajes anteriores de esta conversación (están más arriba en el hilo). Si el usuario dice "la imagen", "eso", "explícamelo", "¿qué significa?", "el archivo anterior" y similares, se refiere a algo que YA ocurrió antes; NO lo trates como un pedido nuevo ni lo generes de cero — responde sobre lo que ya existe en el hilo.` },
+    ...historialPrevio,
     { role: "user", content: mensaje }
   ];
 
@@ -885,6 +902,7 @@ REGLAS ABSOLUTAS DE USO DE HERRAMIENTAS:
 
   if (!respuestaFinal) respuestaFinal = "Tarea procesada (se alcanzó el límite de pasos).";
   if (typeof respuestaFinal !== "string") respuestaFinal = JSON.stringify(respuestaFinal);
+  respuestaFinal = limpiarRespuesta(respuestaFinal);
   return { respuesta: respuestaFinal, pasos, artefactos };
 }
 
@@ -1071,19 +1089,26 @@ app.post("/agente", async (req, res) => {
   const { mensaje, agente = "general", conversacion_id, usuario } = req.body;
   if (!mensaje) return res.status(400).json({ error: "Falta mensaje" });
   try {
-    // Gestionar la conversación: si no viene id, crear una nueva con título automático
+    // Gestionar la conversación y recuperar el hilo para dar contexto al agente
     let convId = conversacion_id;
-    let convNueva = null;
+    let previos = [];   // mensajes anteriores del hilo (para que el agente siga el contexto)
     try {
-      if (!convId) {
-        convNueva = await crearConversacion(usuario, mensaje, agente);
+      if (convId) {
+        // conversación existente: cargamos el hilo ANTES de añadir el mensaje nuevo
+        const data = await cargarConversacion(convId);
+        previos = (data.mensajes || []).slice(-10).map(m => ({
+          role: m.rol === "user" ? "user" : "assistant",
+          content: String(m.contenido || "").slice(0, 1500)
+        })).filter(m => m.content);
+      } else {
+        const convNueva = await crearConversacion(usuario, mensaje, agente);
         convId = convNueva?.id;
       }
       if (convId) await guardarMensaje(convId, "user", mensaje, null, null);
-    } catch(e) { logger.error("No se pudo guardar conversación: " + e.message); }
+    } catch(e) { logger.error("No se pudo preparar conversación: " + e.message); }
 
-    // Ejecutar el motor de herramientas
-    const r = await ejecutarConHerramientas(mensaje, agente);
+    // Ejecutar el motor de herramientas CON el hilo de la conversación
+    const r = await ejecutarConHerramientas(mensaje, agente, 6, previos);
 
     // Guardar la respuesta del agente (artefactos livianos: solo metadata, no el base64 pesado)
     try {

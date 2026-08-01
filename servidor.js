@@ -573,8 +573,11 @@ async function transcribirAudio(audioBuffer) {
   return { texto: data.result.text, palabras: data.result.word_count };
 }
 
-async function generarVideo(prompt, frames = 6) {
-  // Optimizar el prompt base una sola vez (coherencia entre frames)
+async function generarVideo(prompt, escenas = 3) {
+  // Entre 2 y 4 escenas: suficiente para narrar, sin saturar el teléfono ni engordar el video
+  escenas = Math.max(2, Math.min(parseInt(escenas) || 3, 4));
+
+  // ── 1) Prompt base cinematográfico: da coherencia visual entre todas las escenas ──
   let promptBase = prompt;
   try {
     promptBase = await llamarCF(AGENTES.director.modelo, [
@@ -583,11 +586,13 @@ async function generarVideo(prompt, frames = 6) {
     ], 150);
   } catch(e) {}
 
-  const imagenes = [];
-  // FLUX Schnell es rápido → generamos más frames para movimiento más fluido
-  for (let i = 0; i < frames; i++) {
-    const progreso = (i / (frames - 1)).toFixed(2); // 0.00 → 1.00 para sugerir avance temporal
-    const fp = `${promptBase}, cinematic film still, frame ${i+1}/${frames}, motion progress ${progreso}, consistent characters and lighting, smooth camera movement`;
+  // Cada escena usa un plano distinto → sensación de montaje de cine, no de foto repetida
+  const planos = ["cinematic establishing wide shot", "cinematic medium shot", "cinematic close-up detail", "cinematic dramatic hero shot"];
+
+  // ── 2) Generar una imagen por escena con FLUX (gratis) y guardarla en disco ──
+  const rutas = [];
+  for (let i = 0; i < escenas; i++) {
+    const fp = `${promptBase}, ${planos[i % planos.length]}, consistent characters and lighting, film grain, 35mm, high detail`;
     try {
       const url = `https://api.cloudflare.com/client/v4/accounts/${CF_ACCOUNT_ID}/ai/run/${MODELOS.imagen}`;
       const resp = await fetch(url, {
@@ -597,29 +602,97 @@ async function generarVideo(prompt, frames = 6) {
       });
       const d = await resp.json();
       if (d.success && d.result?.image) {
-        imagenes.push(d.result.image);
-        fs.writeFileSync(path.join(TMP_DIR, `vframe_${i}.jpg`), Buffer.from(d.result.image, "base64"));
+        const rp = path.join(TMP_DIR, `vframe_${i}.jpg`);
+        fs.writeFileSync(rp, Buffer.from(d.result.image, "base64"));
+        rutas.push(rp);
       }
-    } catch(e) { logger.warn(`Frame ${i} falló: ${e.message}`); }
+    } catch(e) { logger.warn(`Escena ${i} falló: ${e.message}`); }
   }
+  if (rutas.length === 0) throw new Error("No se pudo generar ninguna escena");
 
-  if (imagenes.length >= 2) {
-    try {
-      // framerate 2 + libx264 → video más fluido que el anterior (1 fps)
-      const patron = path.join(TMP_DIR, "vframe_%d.jpg");
-      const salida = path.join(TMP_DIR, "vout.mp4");
-      execSync(`ffmpeg -y -framerate 2 -i "${patron}" -c:v libx264 -pix_fmt yuv420p -vf "scale=1024:1024:force_original_aspect_ratio=decrease,pad=1024:1024:(ow-iw)/2:(oh-ih)/2" "${salida}" 2>/dev/null`);
-      const videoBuf = fs.readFileSync(salida);
-      const videoB64 = videoBuf.toString("base64");
-      for (let i = 0; i < frames; i++) { try { fs.unlinkSync(path.join(TMP_DIR, `vframe_${i}.jpg`)); } catch(e) {} }
-      try { fs.unlinkSync(salida); } catch(e) {}
-      return { video: "data:video/mp4;base64," + videoB64, frames: imagenes.length, modelo: "flux-frames+ffmpeg" };
-    } catch(e) {
-      logger.warn("ffmpeg falló: " + e.message);
-      return { imagenes: imagenes.map(img => "data:image/jpeg;base64," + img), frames: imagenes.length, nota: "Frames individuales (ffmpeg no disponible)" };
+  const salida = path.join(TMP_DIR, "vout.mp4");
+  const FPS = 24, DUR = 3.0, CF = 0.6;          // 3 s por escena, fundidos de 0,6 s
+  const NF = Math.round(DUR * FPS);              // frames por escena (72)
+
+  const limpiarImgs = () => { for (const r of rutas) { try { fs.unlinkSync(r); } catch(e){} } };
+  const devolver = () => {
+    const b64 = fs.readFileSync(salida).toString("base64");
+    try { fs.unlinkSync(salida); } catch(e){}
+    limpiarImgs();
+    return { video: "data:video/mp4;base64," + b64, escenas: rutas.length, modelo: "flux + cámara cinematográfica (ffmpeg)" };
+  };
+
+  // A dónde "viaja" el zoom en cada escena → simula un movimiento de cámara distinto cada vez
+  const focos = [
+    "x='iw/2-(iw/zoom/2)':y='ih/2-(ih/zoom/2)'", // acercamiento al centro
+    "x='0':y='0'",                                 // deriva hacia arriba-izquierda
+    "x='iw-(iw/zoom)':y='ih-(ih/zoom)'",           // deriva hacia abajo-derecha
+    "x='iw-(iw/zoom)':y='0'"                        // deriva hacia arriba-derecha
+  ];
+  // Convierte UNA imagen en un clip con zoom lento de cámara (el efecto "Ken Burns" del cine)
+  const hacerClip = (imgPath, idx, clipPath) => {
+    const foco = focos[idx % focos.length];
+    // scale+crop deja margen extra para que el zoom no pixele; zoompan crea el movimiento suave
+    const vf = `scale=1440:1440:force_original_aspect_ratio=increase,crop=1440:1440,zoompan=z='min(zoom+0.0011,1.32)':d=${NF}:${foco}:s=720x720:fps=${FPS},setsar=1`;
+    execSync(`ffmpeg -y -i "${imgPath}" -vf "${vf}" -c:v libx264 -pix_fmt yuv420p -r ${FPS} -an "${clipPath}" 2>/dev/null`);
+  };
+
+  // ── 3) INTENTO A (lo más bonito): clip con movimiento por escena + fundidos encadenados ──
+  try {
+    const clips = [];
+    for (let i = 0; i < rutas.length; i++) {
+      const cp = path.join(TMP_DIR, `vclip_${i}.mp4`);
+      hacerClip(rutas[i], i, cp);
+      clips.push(cp);
     }
-  }
-  throw new Error("No se pudieron generar suficientes frames");
+    const borrarClips = () => { for (const c of clips) { try { fs.unlinkSync(c); } catch(e){} } };
+
+    if (clips.length === 1) {
+      fs.copyFileSync(clips[0], salida); borrarClips(); return devolver();
+    }
+    // Encadenar con xfade: el fundido nº k arranca en k*(DUR-CF) segundos
+    const inputs = clips.map(c => `-i "${c}"`).join(" ");
+    let fc = "", prev = "[0]";
+    for (let k = 1; k < clips.length; k++) {
+      const off = (k * (DUR - CF)).toFixed(2);
+      const out = (k === clips.length - 1) ? "[out]" : `[a${k}]`;
+      fc += `${prev}[${k}]xfade=transition=fade:duration=${CF}:offset=${off}${out};`;
+      prev = `[a${k}]`;
+    }
+    fc = fc.replace(/;$/, "");
+    execSync(`ffmpeg -y ${inputs} -filter_complex "${fc}" -map "[out]" -c:v libx264 -pix_fmt yuv420p -movflags +faststart "${salida}" 2>/dev/null`);
+    borrarClips();
+    return devolver();
+  } catch(eA) { logger.warn("Video A (xfade) falló: " + eA.message); }
+
+  // ── 4) INTENTO B (respaldo): mismos clips con movimiento, pero unidos con corte seco ──
+  try {
+    const clips = [];
+    for (let i = 0; i < rutas.length; i++) {
+      const cp = path.join(TMP_DIR, `vclip_${i}.mp4`);
+      try { hacerClip(rutas[i], i, cp); clips.push(cp); } catch(e){}
+    }
+    if (clips.length >= 1) {
+      const lista = path.join(TMP_DIR, "vlist.txt");
+      fs.writeFileSync(lista, clips.map(c => `file '${c}'`).join("\n"));
+      execSync(`ffmpeg -y -f concat -safe 0 -i "${lista}" -c copy "${salida}" 2>/dev/null`);
+      for (const c of clips) { try { fs.unlinkSync(c); } catch(e){} }
+      try { fs.unlinkSync(lista); } catch(e){}
+      return devolver();
+    }
+  } catch(eB) { logger.warn("Video B (concat) falló: " + eB.message); }
+
+  // ── 5) INTENTO C (respaldo del respaldo): método antiguo, frames pegados ──
+  try {
+    const patron = path.join(TMP_DIR, "vframe_%d.jpg");
+    execSync(`ffmpeg -y -framerate 1 -i "${patron}" -c:v libx264 -pix_fmt yuv420p -vf "scale=720:720:force_original_aspect_ratio=decrease,pad=720:720:(ow-iw)/2:(oh-ih)/2" "${salida}" 2>/dev/null`);
+    return devolver();
+  } catch(eC) { logger.warn("Video C (slideshow) falló: " + eC.message); }
+
+  // ── 6) Último recurso: devolver las escenas como imágenes sueltas ──
+  const imgs = rutas.map(r => "data:image/jpeg;base64," + fs.readFileSync(r).toString("base64"));
+  limpiarImgs();
+  return { imagenes: imgs, escenas: imgs.length, nota: "Escenas individuales (ffmpeg no disponible)" };
 }
 
 async function generarPDF(titulo, contenido) {

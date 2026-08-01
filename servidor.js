@@ -1519,6 +1519,7 @@ const SYS_ESCRITOR = `Eres un escritor y editor profesional de Fundora Agency. E
 // Extrae un objeto JSON de la respuesta del modelo, tolerando fences ```json y texto alrededor
 function extraerJSON(txt) {
   if (!txt) return null;
+  if (typeof txt === "object") return txt;   // Cloudflare a veces devuelve el JSON ya parseado
   let s = String(txt).replace(/```json/gi, "").replace(/```/g, "").trim();
   const ini = s.indexOf("{"), fin = s.lastIndexOf("}");
   if (ini >= 0 && fin > ini) s = s.slice(ini, fin + 1);

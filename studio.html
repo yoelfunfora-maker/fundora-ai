@@ -216,8 +216,8 @@ svg { display: block; }
 }
 /* ═══ MONITOR (Centro de Control) ═══ */
 /* Interruptor Chat / Monitor en la cabecera */
-.toggle-vista { margin-left: auto; display: flex; gap: 3px; background: var(--oceano); border: 1px solid var(--borde); border-radius: 10px; padding: 3px; }
-.tv-btn { display: flex; align-items: center; gap: 6px; background: none; border: none; color: var(--texto-suave); font-family: 'Inter'; font-size: 13px; font-weight: 500; padding: 7px 13px; border-radius: 7px; cursor: pointer; }
+.toggle-vista { margin-left: auto; display: flex; gap: 3px; background: var(--oceano); border: 1px solid var(--borde); border-radius: 10px; padding: 3px; overflow-x: auto; max-width: 62vw; }
+.tv-btn { display: flex; align-items: center; gap: 5px; background: none; border: none; color: var(--texto-suave); font-family: 'Inter'; font-size: 12px; font-weight: 500; padding: 6px 10px; border-radius: 7px; cursor: pointer; flex-shrink: 0; white-space: nowrap; }
 .tv-btn.activa { background: var(--superficie-alta); color: var(--texto); }
 .tv-btn.activa .ico { color: var(--oro); }
 .tv-btn .ico { display: flex; }
@@ -246,6 +246,36 @@ body.modo-biblioteca #vista-biblioteca { display: flex; }
 .pieza .pie .t { font-size: 11px; color: var(--texto-suave); text-transform: capitalize; }
 .pieza .pie a { color: var(--oro); font-size: 12px; text-decoration: none; font-weight: 600; }
 .galeria-info { text-align: center; color: var(--texto-suave); padding: 40px 20px; font-size: 14px; line-height: 1.5; }
+
+/* ═══ EDITORIAL · Estudio de Libros ═══ */
+#vista-editorial { display: none; flex: 1; flex-direction: column; overflow-y: auto; padding: 20px; gap: 16px; }
+body.modo-editorial #mensajes,
+body.modo-editorial .zona-input,
+body.modo-editorial #dropdown-agente { display: none; }
+body.modo-editorial #vista-editorial { display: flex; }
+.ed-form { background: var(--superficie); border: 1px solid var(--borde); border-radius: 14px; padding: 16px; display: flex; flex-direction: column; gap: 12px; }
+.ed-titulo { color: var(--texto); font-size: 16px; font-weight: 600; }
+#ed-idea, #ed-tono, #ed-genero, #ed-caps { background: var(--oceano); border: 1px solid var(--borde); border-radius: 10px; color: var(--texto); font-family: 'Inter'; font-size: 14px; padding: 10px 12px; width: 100%; }
+#ed-idea { resize: vertical; }
+.ed-fila { display: flex; gap: 10px; align-items: center; }
+.ed-fila .ed-lbl { color: var(--texto-suave); font-size: 13px; flex-shrink: 0; }
+#ed-caps { width: 78px; flex-shrink: 0; }
+.ed-btn { background: var(--oro); color: #1a1206; border: none; border-radius: 10px; font-family: 'Inter'; font-weight: 600; font-size: 14px; padding: 11px 16px; cursor: pointer; flex-shrink: 0; }
+.ed-btn:disabled { opacity: 0.55; }
+.ed-salida { display: flex; flex-direction: column; gap: 14px; }
+.ed-esquema { background: var(--superficie); border: 1px solid var(--borde); border-radius: 14px; padding: 16px; }
+.ed-esquema h4 { color: var(--oro); font-size: 18px; margin-bottom: 6px; }
+.ed-esquema .sinopsis { color: var(--texto-suave); font-size: 14px; line-height: 1.5; margin-bottom: 12px; }
+.ed-chips { display: flex; flex-wrap: wrap; gap: 6px; margin-bottom: 12px; }
+.ed-chip { background: var(--oceano); border: 1px solid var(--borde); border-radius: 20px; padding: 4px 10px; font-size: 12px; color: var(--texto-suave); }
+.ed-indice { list-style: none; display: flex; flex-direction: column; }
+.ed-indice li { color: var(--texto); font-size: 13px; padding: 6px 0; border-bottom: 1px solid var(--borde); }
+.ed-progreso { height: 8px; background: var(--oceano); border-radius: 20px; overflow: hidden; }
+.ed-progreso > i { display: block; height: 100%; width: 0; background: var(--oro); transition: width 0.4s; }
+.ed-cap { background: var(--superficie); border: 1px solid var(--borde); border-radius: 12px; padding: 16px; }
+.ed-cap h5 { color: var(--texto); font-size: 15px; font-weight: 600; margin-bottom: 8px; }
+.ed-cap p { color: var(--texto-suave); font-size: 14px; line-height: 1.65; white-space: pre-wrap; }
+.ed-estado { color: var(--texto-suave); font-size: 13px; text-align: center; padding: 8px; }
 
 /* El latido: tarjetas con el pulso del sistema */
 .latido { display: grid; grid-template-columns: repeat(auto-fit, minmax(128px, 1fr)); gap: 12px; }
@@ -319,6 +349,7 @@ body.modo-biblioteca #vista-biblioteca { display: flex; }
       <button class="tv-btn activa" id="tv-chat" onclick="verVista('chat')"><span class="ico" id="ico-tv-chat"></span><span>Chat</span></button>
       <button class="tv-btn" id="tv-monitor" onclick="verVista('monitor')"><span class="ico" id="ico-tv-monitor"></span><span>Monitor</span></button>
       <button class="tv-btn" id="tv-biblioteca" onclick="verVista('biblioteca')"><span class="ico" id="ico-tv-biblioteca"></span><span>Stock</span></button>
+      <button class="tv-btn" id="tv-editorial" onclick="verVista('editorial')"><span class="ico" id="ico-tv-editorial"></span><span>Libros</span></button>
     </div>
   </div>
 
@@ -342,6 +373,35 @@ body.modo-biblioteca #vista-biblioteca { display: flex; }
   <!-- ═══ VISTA STOCK · Biblioteca de creaciones ═══ -->
   <div id="vista-biblioteca">
     <div class="galeria" id="galeria"></div>
+  </div>
+
+  <!-- ═══ VISTA EDITORIAL · Estudio de Libros ═══ -->
+  <div id="vista-editorial">
+    <div class="ed-form">
+      <h3 class="ed-titulo">Estudio de Libros</h3>
+      <textarea id="ed-idea" rows="2" placeholder="¿De qué trata tu libro? O pega aquí tu propio texto para partir de él…"></textarea>
+      <div class="ed-fila">
+        <select id="ed-genero">
+          <option value="novela">Novela</option>
+          <option value="aventura">Aventura</option>
+          <option value="romance">Romance</option>
+          <option value="misterio">Misterio</option>
+          <option value="ciencia ficción">Ciencia ficción</option>
+          <option value="fantasía">Fantasía</option>
+          <option value="terror">Terror</option>
+          <option value="autoayuda">Autoayuda</option>
+          <option value="infantil">Infantil</option>
+          <option value="ensayo">Ensayo</option>
+        </select>
+        <input id="ed-tono" placeholder="Tono (opcional)">
+      </div>
+      <div class="ed-fila">
+        <span class="ed-lbl">Capítulos</span>
+        <input id="ed-caps" type="number" min="2" max="20" value="5">
+        <button class="ed-btn" id="ed-btn-esquema" onclick="crearEsquema()">Crear esquema</button>
+      </div>
+    </div>
+    <div class="ed-salida" id="ed-salida"></div>
   </div>
 
   <!-- ═══ VISTA MONITOR · Centro de Control ═══ -->
@@ -436,7 +496,8 @@ function pintarIconosFijos() {
   document.getElementById("ico-bienvenida").innerHTML= icono("compass", 52);
   document.getElementById("ico-tv-chat").innerHTML   = icono("chat", 16);
   document.getElementById("ico-tv-monitor").innerHTML= icono("activity", 16);
-  document.getElementById("ico-tv-biblioteca").innerHTML = icono("libro", 16);
+  document.getElementById("ico-tv-biblioteca").innerHTML = icono("carpeta", 16);
+  document.getElementById("ico-tv-editorial").innerHTML = icono("libro", 16);
   document.getElementById("lb-cerrar").innerHTML     = icono("x", 22);
   elegirAgente("general"); // fija el icono/nombre del agente inicial
 }
@@ -701,9 +762,11 @@ function verVista(v) {
   vistaActual = v;
   document.body.classList.toggle("modo-monitor", v === "monitor");
   document.body.classList.toggle("modo-biblioteca", v === "biblioteca");
+  document.body.classList.toggle("modo-editorial", v === "editorial");
   document.getElementById("tv-chat").classList.toggle("activa", v === "chat");
   document.getElementById("tv-monitor").classList.toggle("activa", v === "monitor");
   document.getElementById("tv-biblioteca").classList.toggle("activa", v === "biblioteca");
+  document.getElementById("tv-editorial").classList.toggle("activa", v === "editorial");
   if (v === "monitor") iniciarMonitor(); else detenerMonitor();
   if (v === "biblioteca") cargarBiblioteca();
 }
@@ -750,6 +813,107 @@ function pintarPieza(it) {
 function ampliarUrl(url) {
   document.getElementById("lightbox-img").src = url;
   document.getElementById("lightbox").classList.add("visible");
+}
+
+/* ─── Editorial · Estudio de Libros ─── */
+let libroEnCurso = null;   // { esquema, capitulos:[{n,titulo,texto}] }
+
+/* Paso 1: pedir el esquema (título, sinopsis, personajes, índice) */
+async function crearEsquema() {
+  const idea = document.getElementById("ed-idea").value.trim();
+  if (!idea) { alert("Escribe una idea o pega un texto para empezar."); return; }
+  const genero = document.getElementById("ed-genero").value;
+  const tono = document.getElementById("ed-tono").value.trim();
+  const capitulos = parseInt(document.getElementById("ed-caps").value) || 5;
+  const salida = document.getElementById("ed-salida");
+  const btn = document.getElementById("ed-btn-esquema");
+  btn.disabled = true;
+  salida.innerHTML = '<div class="ed-estado">Diseñando el esquema del libro…</div>';
+  try {
+    const r = await fetch(`${API_BASE}/libro/esquema`, {
+      method: "POST", headers: { "Content-Type": "application/json" },
+      // Si el texto es largo, lo tratamos como material base del autor
+      body: JSON.stringify({ idea, genero, tono, capitulos, base: idea.length > 400 ? idea : "" })
+    });
+    const d = await r.json();
+    if (!d.ok) throw new Error(d.error || "no se pudo crear el esquema");
+    libroEnCurso = { esquema: d.esquema, capitulos: [] };
+    pintarEsquema(d.esquema);
+  } catch(e) {
+    salida.innerHTML = `<div class="ed-estado">No se pudo crear el esquema: ${e.message}</div>`;
+  } finally { btn.disabled = false; }
+}
+
+/* Muestra el esquema y el botón para escribir el libro entero */
+function pintarEsquema(esq) {
+  const chips = (esq.personajes || []).map(p => `<span class="ed-chip">${p.nombre}${p.rol ? " · " + p.rol : ""}</span>`).join("");
+  const indice = (esq.capitulos || []).map(c => `<li>${c.n}. ${c.titulo}</li>`).join("");
+  document.getElementById("ed-salida").innerHTML = `
+    <div class="ed-esquema">
+      <h4>${esq.titulo || "Sin título"}</h4>
+      <div class="sinopsis">${esq.sinopsis || ""}</div>
+      <div class="ed-chips">${chips}</div>
+      <ul class="ed-indice">${indice}</ul>
+      <button class="ed-btn" id="ed-btn-escribir" onclick="escribirLibro()" style="margin-top:14px">Escribir el libro completo</button>
+    </div>
+    <div class="ed-progreso" id="ed-prog" style="display:none"><i></i></div>
+    <div id="ed-capitulos"></div>`;
+}
+
+/* Paso 2: escribir capítulo por capítulo, con progreso visible */
+async function escribirLibro() {
+  if (!libroEnCurso) return;
+  const esq = libroEnCurso.esquema;
+  const total = esq.capitulos.length;
+  const btn = document.getElementById("ed-btn-escribir");
+  const prog = document.getElementById("ed-prog");
+  const cont = document.getElementById("ed-capitulos");
+  btn.disabled = true; btn.textContent = "Escribiendo…";
+  prog.style.display = "block";
+  libroEnCurso.capitulos = [];
+  for (let i = 0; i < total; i++) {
+    const cap = esq.capitulos[i];
+    prog.querySelector("i").style.width = Math.round((i / total) * 100) + "%";
+    cont.insertAdjacentHTML("beforeend", `<div class="ed-cap" id="cap-${cap.n}"><h5>${cap.n}. ${cap.titulo}</h5><p class="ed-estado">Escribiendo este capítulo…</p></div>`);
+    document.getElementById(`cap-${cap.n}`).scrollIntoView({ behavior: "smooth", block: "nearest" });
+    try {
+      const r = await fetch(`${API_BASE}/libro/capitulo`, {
+        method: "POST", headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ esquema: esq, n: cap.n })
+      });
+      const d = await r.json();
+      const texto = d.ok ? d.texto : "(No se pudo escribir este capítulo)";
+      libroEnCurso.capitulos.push({ n: cap.n, titulo: cap.titulo, texto });
+      document.querySelector(`#cap-${cap.n} p`).textContent = texto;
+      document.querySelector(`#cap-${cap.n} p`).className = "";
+    } catch(e) {
+      document.querySelector(`#cap-${cap.n} p`).textContent = "Error: " + e.message;
+    }
+  }
+  prog.querySelector("i").style.width = "100%";
+  btn.textContent = "Libro terminado";
+  cont.insertAdjacentHTML("beforeend", `<button class="ed-btn" id="ed-btn-pdf" onclick="guardarLibroPDF()" style="margin-top:6px">Guardar PDF en mi Stock</button>`);
+}
+
+/* Paso 3: ensamblar y guardar el PDF (queda en el Stock) */
+async function guardarLibroPDF() {
+  if (!libroEnCurso || !libroEnCurso.capitulos.length) return;
+  const esq = libroEnCurso.esquema;
+  const btn = document.getElementById("ed-btn-pdf");
+  btn.disabled = true; btn.textContent = "Guardando…";
+  let contenido = (esq.sinopsis || "") + "\n\n";
+  for (const c of libroEnCurso.capitulos) contenido += `\nCapítulo ${c.n}: ${c.titulo}\n\n${c.texto}\n`;
+  try {
+    const r = await fetch(`${API_BASE}/libro/pdf`, {
+      method: "POST", headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ titulo: esq.titulo || "Libro", contenido })
+    });
+    const d = await r.json();
+    if (!d.ok) throw new Error(d.error || "error");
+    btn.textContent = "Guardado en tu Stock";
+  } catch(e) {
+    btn.disabled = false; btn.textContent = "Reintentar guardar PDF";
+  }
 }
 
 /* ─── El latido ─── */

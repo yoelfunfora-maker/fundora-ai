@@ -1549,6 +1549,7 @@ app.ws("/terminal", (ws, req) => {
 // Servir el STUDIO (interfaz de chat con menú lateral de conversaciones)
 app.get("/studio", (req, res) => {
   try {
+    res.set("Cache-Control", "no-store, no-cache, must-revalidate");  // que el navegador NO sirva versión vieja
     res.type("html").send(fs.readFileSync(path.join(SAFE_ROOT, "studio.html"), "utf8"));
   } catch(e) {
     res.status(500).send("studio.html no encontrado en " + SAFE_ROOT);

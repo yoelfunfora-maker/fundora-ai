@@ -752,6 +752,31 @@ async function verificarResultado(texto, tipo = "general") {
 const DIR_GENERADOS = path.join(SAFE_ROOT, "generados");
 try { if (!fs.existsSync(DIR_GENERADOS)) fs.mkdirSync(DIR_GENERADOS, { recursive: true }); } catch(e) {}
 
+// Guarda una creación multimedia (imagen/video/audio/pdf) como archivo REAL en disco,
+// para que persista y se vea en la Biblioteca aunque el usuario recargue o salga.
+// Devuelve la URL pública relativa (/generados/xxx) o null si no se pudo archivar.
+function archivarCreacion(art) {
+  try {
+    const campo = art.tipo;                        // "imagen" | "audio" | "video" | "pdf"
+    let dataUrl = art[campo];
+    // Si el video cayó al respaldo de frames sueltos, guardamos al menos la primera imagen
+    if (!dataUrl && art.tipo === "video" && Array.isArray(art.imagenes) && art.imagenes.length) {
+      dataUrl = art.imagenes[0];
+    }
+    if (!dataUrl || typeof dataUrl !== "string" || !dataUrl.startsWith("data:")) return null;
+    // Separar el tipo MIME y el contenido base64 del data URL
+    const m = dataUrl.match(/^data:([^;]+);base64,(.*)$/s);
+    if (!m) return null;
+    const mime = m[1], b64 = m[2];
+    const extPorMime = { "image/jpeg":"jpg", "image/png":"png", "image/webp":"webp", "video/mp4":"mp4", "audio/mpeg":"mp3", "audio/mp3":"mp3", "audio/wav":"wav", "application/pdf":"pdf" };
+    const ext = extPorMime[mime] || (art.tipo === "imagen" ? "jpg" : art.tipo === "video" ? "mp4" : art.tipo === "audio" ? "mp3" : "bin");
+    // Nombre único: fecha + tipo + azar → nunca se pisan
+    const nombre = `${Date.now()}_${art.tipo}_${Math.random().toString(36).slice(2,7)}.${ext}`;
+    fs.writeFileSync(path.join(DIR_GENERADOS, nombre), Buffer.from(b64, "base64"));
+    return "/generados/" + nombre;
+  } catch(e) { logger.warn("No se pudo archivar la creación: " + e.message); return null; }
+}
+
 const HERRAMIENTAS = {
   generar_imagen: {
     def: { type: "function", function: {
@@ -966,6 +991,8 @@ REGLAS ABSOLUTAS DE USO DE HERRAMIENTAS:
 
       // Guardar artefactos multimedia para el frontend
       if (resultado.tipo && ["imagen","audio","video","pdf"].includes(resultado.tipo)) {
+        const url = archivarCreacion(resultado);   // lo escribe en disco para que quede en la Biblioteca
+        if (url) resultado.url = url;               // URL persistente (sobrevive a recargas)
         artefactos.push(resultado);
       }
 
@@ -996,6 +1023,8 @@ app.use((req, res, next) => {
   next();
 });
 app.use(express.static("public"));
+// Sirve las creaciones guardadas (imágenes/videos/audios/pdfs) para la Biblioteca
+app.use("/generados", express.static(DIR_GENERADOS));
 
 // ══════════════════════════════════════════════
 //  ENDPOINTS PRINCIPALES
@@ -1482,13 +1511,21 @@ app.post("/upload", upload.single("archivo"), async (req, res) => {
   } catch(e) { res.status(500).json({ error: e.message }); }
 });
 
-app.get("/biblioteca", async (req, res) => {
+app.get("/biblioteca", (req, res) => {
   try {
-    const resp = await fetch(`${SUPABASE_URL}/rest/v1/archivos?select=id,nombre,tipo,created_at&order=created_at.desc&limit=50`, {
-      headers: { "apikey": SUPABASE_KEY, "Authorization": `Bearer ${SUPABASE_KEY}` }
-    });
-    const archivos = await resp.json();
-    res.json({ archivos, total: archivos.length });
+    // Clasifica cada archivo por su extensión → tipo mostrable en la galería
+    const porExt = { jpg:"imagen", jpeg:"imagen", png:"imagen", webp:"imagen", gif:"imagen", mp4:"video", webm:"video", mp3:"audio", wav:"audio", ogg:"audio", pdf:"pdf" };
+    const nombres = fs.existsSync(DIR_GENERADOS) ? fs.readdirSync(DIR_GENERADOS) : [];
+    const creaciones = nombres
+      .map(n => {
+        const ext = (n.split(".").pop() || "").toLowerCase();
+        const tipo = porExt[ext] || "archivo";   // código/texto se muestran como "archivo" descargable
+        let fecha = 0, bytes = 0;
+        try { const st = fs.statSync(path.join(DIR_GENERADOS, n)); fecha = st.mtimeMs; bytes = st.size; } catch(e) {}
+        return { nombre: n, tipo, url: "/generados/" + n, fecha, bytes };
+      })
+      .sort((a, b) => b.fecha - a.fecha);          // lo más reciente primero
+    res.json({ creaciones, total: creaciones.length });
   } catch(e) { res.status(500).json({ error: e.message }); }
 });
 

@@ -1511,6 +1511,81 @@ app.post("/upload", upload.single("archivo"), async (req, res) => {
   } catch(e) { res.status(500).json({ error: e.message }); }
 });
 
+// ══════════════════════════════════════════════
+//  ESTUDIO DE LIBROS — Escritor por capítulos
+// ══════════════════════════════════════════════
+const SYS_ESCRITOR = `Eres un escritor y editor profesional de Fundora Agency. Escribes libros y novelas con prosa cuidada, coherente y envolvente. Respetas el género, el tono y el idioma que se te pidan.`;
+
+// Extrae un objeto JSON de la respuesta del modelo, tolerando fences ```json y texto alrededor
+function extraerJSON(txt) {
+  if (!txt) return null;
+  let s = String(txt).replace(/```json/gi, "").replace(/```/g, "").trim();
+  const ini = s.indexOf("{"), fin = s.lastIndexOf("}");
+  if (ini >= 0 && fin > ini) s = s.slice(ini, fin + 1);
+  try { return JSON.parse(s); } catch(e) { return null; }
+}
+
+// 1) ESQUEMA: título, sinopsis, personajes e índice (la "biblia" que da coherencia al libro)
+app.post("/libro/esquema", async (req, res) => {
+  const { idea = "", genero = "novela", tono = "", capitulos = 5, idioma = "español", base = "" } = req.body || {};
+  if (!idea && !base) return res.status(400).json({ error: "Falta la idea o un texto base" });
+  const nCap = Math.max(2, Math.min(parseInt(capitulos) || 5, 20));   // tope sano para no agotar cuota
+  try {
+    const instruccion = `Diseña el esquema de un libro en ${idioma}.
+Género: ${genero}. Tono: ${tono || "libre"}. Capítulos: ${nCap}.
+${base ? "Parte de este material del autor:\n" + String(base).slice(0, 4000) + "\n" : ""}Idea: ${idea || "(desarrolla a partir del material del autor)"}
+
+Responde SOLO con un JSON válido, sin texto extra, con esta forma exacta:
+{"titulo":"...","sinopsis":"2-3 frases","personajes":[{"nombre":"...","rol":"..."}],"capitulos":[{"n":1,"titulo":"...","resumen":"1 frase"}]}
+El array capitulos debe tener exactamente ${nCap} elementos.`;
+    const resp = await llamarCF(MODELOS.potente, [
+      { role: "system", content: SYS_ESCRITOR + " Devuelves SOLO JSON válido cuando se te pide." },
+      { role: "user", content: instruccion }
+    ], 1200);
+    const esquema = extraerJSON(resp);
+    if (!esquema || !Array.isArray(esquema.capitulos)) return res.status(502).json({ error: "El modelo no devolvió un esquema válido", crudo: resp });
+    res.json({ ok: true, esquema });
+  } catch(e) { logger.error("/libro/esquema: " + e.message); res.status(500).json({ error: e.message }); }
+});
+
+// 2) CAPÍTULO: escribe un capítulo concreto usando el esquema completo como contexto (continuidad)
+app.post("/libro/capitulo", async (req, res) => {
+  const { esquema, n = 1, idioma = "español" } = req.body || {};
+  if (!esquema || !Array.isArray(esquema.capitulos)) return res.status(400).json({ error: "Falta el esquema" });
+  const cap = esquema.capitulos.find(c => Number(c.n) === Number(n)) || esquema.capitulos[n - 1];
+  if (!cap) return res.status(400).json({ error: "Capítulo fuera de rango" });
+  try {
+    const indice = esquema.capitulos.map(c => `${c.n}. ${c.titulo}`).join("\n");
+    const personajes = (esquema.personajes || []).map(p => `- ${p.nombre}: ${p.rol}`).join("\n");
+    const instruccion = `Escribe el capítulo ${cap.n} del libro "${esquema.titulo}", en ${idioma}.
+Sinopsis general: ${esquema.sinopsis}
+Personajes:
+${personajes}
+Índice completo (para mantener la continuidad):
+${indice}
+
+Capítulo a escribir — "${cap.titulo}": ${cap.resumen}
+
+Escribe SOLO la prosa del capítulo (sin poner "Capítulo X" ni notas), entre 600 y 900 palabras, coherente con lo anterior y lo que vendrá.`;
+    const texto = await llamarCF(MODELOS.potente, [
+      { role: "system", content: SYS_ESCRITOR },
+      { role: "user", content: instruccion }
+    ], 1600);
+    res.json({ ok: true, n: cap.n, titulo: cap.titulo, texto: (texto || "").trim() });
+  } catch(e) { logger.error("/libro/capitulo: " + e.message); res.status(500).json({ error: e.message }); }
+});
+
+// 3) PDF: arma el libro terminado en PDF y lo deja guardado en el Stock
+app.post("/libro/pdf", async (req, res) => {
+  const { titulo = "Libro", contenido = "" } = req.body || {};
+  if (!contenido) return res.status(400).json({ error: "Falta el contenido del libro" });
+  try {
+    const r = await generarPDF(titulo, contenido);
+    const url = archivarCreacion({ tipo: "pdf", pdf: r.pdf });   // queda en la Biblioteca/Stock
+    res.json({ ok: true, url, nombre: r.nombre });
+  } catch(e) { logger.error("/libro/pdf: " + e.message); res.status(500).json({ error: e.message }); }
+});
+
 app.get("/biblioteca", (req, res) => {
   try {
     // Clasifica cada archivo por su extensión → tipo mostrable en la galería

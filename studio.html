@@ -193,6 +193,50 @@ svg { display: block; }
   .velo.visible { display: block; position: fixed; inset: 0; background: rgba(0,0,0,0.5); z-index: 15; }
   .mensaje { max-width: 100%; }
 }
+/* ═══ MONITOR (Centro de Control) ═══ */
+/* Interruptor Chat / Monitor en la cabecera */
+.toggle-vista { margin-left: auto; display: flex; gap: 3px; background: var(--oceano); border: 1px solid var(--borde); border-radius: 10px; padding: 3px; }
+.tv-btn { display: flex; align-items: center; gap: 6px; background: none; border: none; color: var(--texto-suave); font-family: 'Inter'; font-size: 13px; font-weight: 500; padding: 7px 13px; border-radius: 7px; cursor: pointer; }
+.tv-btn.activa { background: var(--superficie-alta); color: var(--texto); }
+.tv-btn.activa .ico { color: var(--oro); }
+.tv-btn .ico { display: flex; }
+
+/* Al activar el Monitor, ocultamos el chat y mostramos la cabina */
+#vista-monitor { display: none; flex: 1; flex-direction: column; overflow: hidden; padding: 20px; gap: 16px; }
+body.modo-monitor #mensajes,
+body.modo-monitor .zona-input,
+body.modo-monitor #dropdown-agente { display: none; }
+body.modo-monitor #vista-monitor { display: flex; }
+
+/* El latido: tarjetas con el pulso del sistema */
+.latido { display: grid; grid-template-columns: repeat(auto-fit, minmax(128px, 1fr)); gap: 12px; }
+.tarjeta-estado { display: flex; align-items: center; gap: 12px; background: var(--superficie); border: 1px solid var(--borde); border-radius: 12px; padding: 14px 16px; }
+.tarjeta-estado .ico { color: var(--texto-suave); flex-shrink: 0; }
+.tarjeta-estado .te-valor { font-family: 'Space Grotesk'; font-size: 18px; font-weight: 600; color: var(--texto); line-height: 1.1; }
+.tarjeta-estado .te-label { font-size: 11px; color: var(--texto-suave); text-transform: uppercase; letter-spacing: 0.5px; margin-top: 3px; }
+.tarjeta-estado.verde { border-color: rgba(52,211,153,0.35); }
+.tarjeta-estado.verde .ico { color: var(--ok); }
+.tarjeta-estado.ambar { border-color: rgba(240,180,41,0.4); }
+.tarjeta-estado.ambar .ico { color: var(--oro); }
+.tarjeta-estado.rojo  { border-color: rgba(248,113,113,0.5); }
+.tarjeta-estado.rojo .ico { color: #f87171; }
+
+/* La consola en vivo */
+.consola-cab { display: flex; align-items: center; justify-content: space-between; font-family: 'Space Grotesk'; font-size: 14px; font-weight: 600; color: var(--texto); padding: 0 2px; }
+.consola-estado { display: inline-flex; align-items: center; gap: 7px; font-size: 12px; font-family: 'Inter'; font-weight: 500; color: var(--texto-suave); }
+.punto-consola { width: 8px; height: 8px; border-radius: 50%; background: var(--texto-suave); flex-shrink: 0; }
+.consola-estado.vivo { color: var(--ok); }
+.consola-estado.vivo .punto-consola { background: var(--ok); }
+.consola-estado.ambar { color: var(--oro); }
+.consola-estado.ambar .punto-consola { background: var(--oro); }
+.consola { flex: 1; overflow-y: auto; background: #061019; border: 1px solid var(--borde); border-radius: 12px; padding: 14px 16px; font-family: 'SF Mono', 'Consolas', 'Roboto Mono', monospace; font-size: 12.5px; line-height: 1.65; }
+.linea-log { display: flex; gap: 12px; padding: 1px 0; white-space: pre-wrap; word-break: break-word; }
+.log-hora { color: #3d5a70; flex-shrink: 0; }
+.linea-log.info .log-msg { color: #a8bfd0; }
+.linea-log.warn .log-msg { color: var(--oro); }
+.linea-log.error .log-msg { color: #f87171; }
+.linea-log.error { background: rgba(248,113,113,0.09); border-radius: 4px; padding: 1px 6px; margin: 0 -6px; }
+
 ::-webkit-scrollbar { width: 8px; }
 ::-webkit-scrollbar-thumb { background: var(--borde); border-radius: 4px; }
 ::-webkit-scrollbar-track { background: transparent; }
@@ -232,7 +276,10 @@ svg { display: block; }
       </button>
       <div class="dd-lista" id="dd-lista"></div>
     </div>
-    <span class="subtitulo">Pide cualquier cosa — el agente ejecuta</span>
+    <div class="toggle-vista">
+      <button class="tv-btn activa" id="tv-chat" onclick="verVista('chat')"><span class="ico" id="ico-tv-chat"></span><span>Chat</span></button>
+      <button class="tv-btn" id="tv-monitor" onclick="verVista('monitor')"><span class="ico" id="ico-tv-monitor"></span><span>Monitor</span></button>
+    </div>
   </div>
 
   <div id="mensajes">
@@ -250,6 +297,16 @@ svg { display: block; }
         oninput="autoCrecer(this)"></textarea>
       <button class="btn-enviar" id="btn-enviar" onclick="enviar()"></button>
     </div>
+  </div>
+
+  <!-- ═══ VISTA MONITOR · Centro de Control ═══ -->
+  <div id="vista-monitor">
+    <div class="latido" id="latido"></div>
+    <div class="consola-cab">
+      <span>Consola en vivo</span>
+      <span class="consola-estado" id="consola-estado"><span class="punto-consola"></span><span id="consola-texto">conectando…</span></span>
+    </div>
+    <div class="consola" id="consola"></div>
   </div>
 </main>
 
@@ -283,7 +340,13 @@ const ICONOS = {
   chevron:  '<polyline points="6 9 12 15 18 9"/>',
   check:    '<polyline points="20 6 9 17 4 12"/>',
   x:        '<line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/>',
-  engranaje:'<circle cx="12" cy="12" r="3"/><path d="M12 1v6m0 6v6M4.2 4.2l4.3 4.3m7 7 4.3 4.3M1 12h6m6 0h6M4.2 19.8l4.3-4.3m7-7 4.3-4.3"/>'
+  engranaje:'<circle cx="12" cy="12" r="3"/><path d="M12 1v6m0 6v6M4.2 4.2l4.3 4.3m7 7 4.3 4.3M1 12h6m6 0h6M4.2 19.8l4.3-4.3m7-7 4.3-4.3"/>',
+  server:   '<rect x="2" y="2" width="20" height="8" rx="2"/><rect x="2" y="14" width="20" height="8" rx="2"/><line x1="6" y1="6" x2="6.01" y2="6"/><line x1="6" y1="18" x2="6.01" y2="18"/>',
+  clock:    '<circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/>',
+  cpu:      '<rect x="4" y="4" width="16" height="16" rx="2"/><rect x="9" y="9" width="6" height="6"/><line x1="9" y1="1" x2="9" y2="4"/><line x1="15" y1="1" x2="15" y2="4"/><line x1="9" y1="20" x2="9" y2="23"/><line x1="15" y1="20" x2="15" y2="23"/><line x1="20" y1="9" x2="23" y2="9"/><line x1="20" y1="14" x2="23" y2="14"/><line x1="1" y1="9" x2="4" y2="9"/><line x1="1" y1="14" x2="4" y2="14"/>',
+  database: '<ellipse cx="12" cy="5" rx="9" ry="3"/><path d="M21 12c0 1.66-4 3-9 3s-9-1.34-9-3"/><path d="M3 5v14c0 1.66 4 3 9 3s9-1.34 9-3V5"/>',
+  activity: '<polyline points="22 12 18 12 15 21 9 3 6 12 2 12"/>',
+  chat:     '<path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/>'
 };
 function icono(nombre, tam) {
   const p = ICONOS[nombre] || ICONOS.engranaje;
@@ -318,6 +381,8 @@ function pintarIconosFijos() {
   document.getElementById("btn-enviar").innerHTML    = icono("send", 18);
   document.getElementById("dd-flecha").innerHTML     = icono("chevron", 16);
   document.getElementById("ico-bienvenida").innerHTML= icono("compass", 52);
+  document.getElementById("ico-tv-chat").innerHTML   = icono("chat", 16);
+  document.getElementById("ico-tv-monitor").innerHTML= icono("activity", 16);
   elegirAgente("general"); // fija el icono/nombre del agente inicial
 }
 
@@ -505,6 +570,103 @@ const RASTRO_DEMO = [ { herramienta:"escribir_codigo", ok:true }, { herramienta:
 const MENSAJES_DEMO = [
   { rol:"user", contenido:"Escribe una función de costeo y guárdala en costeo.js" },
   { rol:"assistant", contenido:"Listo. Escribí la función calcularPrecioFinal (costo, flete, arancel, margen) y la guardé en costeo.js.", pasos:RASTRO_DEMO }
+];
+
+/* ═══════════════════════════════════════════════
+   MONITOR · Centro de Control
+   Latido (estado cada 4s) + consola en vivo (SSE)
+   ═══════════════════════════════════════════════ */
+let vistaActual = "chat";
+let fuenteLogs = null;      // conexión SSE de la consola
+let intervaloEstado = null; // refresco del latido
+
+function verVista(v) {
+  vistaActual = v;
+  document.body.classList.toggle("modo-monitor", v === "monitor");
+  document.getElementById("tv-chat").classList.toggle("activa", v === "chat");
+  document.getElementById("tv-monitor").classList.toggle("activa", v === "monitor");
+  if (v === "monitor") iniciarMonitor(); else detenerMonitor();
+}
+function iniciarMonitor() {
+  actualizarEstado();
+  intervaloEstado = setInterval(actualizarEstado, 4000);
+  conectarConsola();
+}
+function detenerMonitor() {
+  if (intervaloEstado) clearInterval(intervaloEstado);
+  if (fuenteLogs) { fuenteLogs.close(); fuenteLogs = null; }
+}
+
+/* ─── El latido ─── */
+async function actualizarEstado() {
+  try {
+    const r = await fetch(`${API_BASE}/monitor/estado`);
+    pintarLatido(await r.json());
+  } catch(e) { pintarLatido(null); }
+}
+function pintarLatido(e) {
+  const cont = document.getElementById("latido");
+  if (!e) {
+    cont.innerHTML = `<div class="tarjeta-estado rojo"><span class="ico">${icono('server',20)}</span><div><div class="te-valor">Caído</div><div class="te-label">Servidor</div></div></div>`;
+    return;
+  }
+  const tarjetas = [
+    { ico:'server',   label:'Servidor',  valor:'Vivo',                 color:'verde' },
+    { ico:'clock',    label:'Encendido', valor:formatUptime(e.uptime_seg), color:'neutro' },
+    { ico:'cpu',      label:'Memoria',   valor:e.memoria_mb+' MB',      color: e.memoria_mb>600?'ambar':'neutro' },
+    { ico:'compass',  label:'Agentes',   valor:e.agentes,              color:'neutro' },
+    { ico:'database', label:'Supabase',  valor: e.supabase==='conectado'?'OK':'sin clave', color: e.supabase==='conectado'?'verde':'ambar' }
+  ];
+  cont.innerHTML = tarjetas.map(t => `
+    <div class="tarjeta-estado ${t.color}">
+      <span class="ico">${icono(t.ico,20)}</span>
+      <div><div class="te-valor">${t.valor}</div><div class="te-label">${t.label}</div></div>
+    </div>`).join("");
+}
+function formatUptime(s) {
+  s = s || 0;
+  const h = Math.floor(s/3600), m = Math.floor((s%3600)/60);
+  return h > 0 ? `${h}h ${m}m` : `${m}m`;
+}
+
+/* ─── La consola en vivo (SSE) ─── */
+function estadoConsola(txt, clase) {
+  document.getElementById("consola-texto").textContent = txt;
+  document.getElementById("consola-estado").className = "consola-estado " + (clase || "");
+}
+function conectarConsola() {
+  const consola = document.getElementById("consola");
+  consola.innerHTML = "";
+  if (fuenteLogs) fuenteLogs.close();
+  try {
+    fuenteLogs = new EventSource(`${API_BASE}/monitor/logs`);
+    fuenteLogs.onopen = () => estadoConsola("en vivo", "vivo");
+    fuenteLogs.onmessage = ev => {
+      let d; try { d = JSON.parse(ev.data); } catch(e) { return; }
+      if (d.tipo === "historial") (d.lineas || []).forEach(pintarLinea);
+      else pintarLinea(d);
+    };
+    fuenteLogs.onerror = () => estadoConsola("reconectando…", "ambar");
+  } catch(e) {
+    estadoConsola("no disponible (vista previa)", "ambar");
+    RASTRO_LOGS_DEMO.forEach(pintarLinea);
+  }
+}
+function pintarLinea(l) {
+  const consola = document.getElementById("consola");
+  const div = document.createElement("div");
+  div.className = "linea-log " + (l.nivel || "info");
+  const hora = new Date(l.t || Date.now()).toLocaleTimeString("es", { hour12:false });
+  div.innerHTML = `<span class="log-hora">${hora}</span><span class="log-msg">${escapar(l.msg||"")}</span>`;
+  consola.appendChild(div);
+  while (consola.children.length > 300) consola.removeChild(consola.firstChild);
+  consola.scrollTop = consola.scrollHeight;
+}
+const RASTRO_LOGS_DEMO = [
+  { t:Date.now(), nivel:"info",  msg:"FUNDORA AGENCY AI escuchando en el puerto 3000" },
+  { t:Date.now(), nivel:"info",  msg:"22 agentes cargados correctamente" },
+  { t:Date.now(), nivel:"warn",  msg:"sharp no disponible — se usará el modo alterno" },
+  { t:Date.now(), nivel:"info",  msg:"Supabase conectado" }
 ];
 
 iniciar();

@@ -24,6 +24,39 @@ const upload = multer({ storage: multer.memoryStorage() });
 const expressWs = require("express-ws")(app);
 
 // ══════════════════════════════════════════════
+//  MONITOR — la consola en vivo del "Centro de Control"
+//  Capturamos cada registro del servidor en un buffer y
+//  lo transmitimos a los navegadores que estén viendo el Monitor.
+// ══════════════════════════════════════════════
+const bufferLogs = [];            // últimas líneas de registro (memoria)
+const clientesSSE = new Set();    // navegadores viendo la consola en vivo
+const MAX_LOGS = 250;
+
+// Decide el color de la línea: rojo (error), ámbar (aviso) o gris (normal)
+function _nivelLog(msg, base) {
+  const m = String(msg).toLowerCase();
+  if (base === "error") return "error";
+  if (/error|falló|fallo|failed|exception|no se pudo|✗|❌/.test(m)) return "error";
+  if (base === "warn" || /advertencia|warning|deprecat|⚠/.test(m)) return "warn";
+  return "info";
+}
+function registrarLog(base, args) {
+  let msg;
+  try { msg = args.map(a => (a && typeof a === "object") ? JSON.stringify(a) : String(a)).join(" "); }
+  catch(e) { msg = args.join(" "); }
+  const linea = { t: Date.now(), nivel: _nivelLog(msg, base), msg };
+  bufferLogs.push(linea);
+  if (bufferLogs.length > MAX_LOGS) bufferLogs.shift();
+  const paquete = "data: " + JSON.stringify(linea) + "\n\n";
+  for (const res of clientesSSE) { try { res.write(paquete); } catch(e) {} }
+}
+// Envolvemos console.* SIN perder la salida normal a la terminal
+const _log = console.log.bind(console), _warn = console.warn.bind(console), _error = console.error.bind(console);
+console.log   = (...a) => { _log(...a);   registrarLog("info", a); };
+console.warn  = (...a) => { _warn(...a);  registrarLog("warn", a); };
+console.error = (...a) => { _error(...a); registrarLog("error", a); };
+
+// ══════════════════════════════════════════════
 //  CONFIGURACIÓN
 // ══════════════════════════════════════════════
 const PORT = process.env.PORT || 3000;
@@ -1495,6 +1528,39 @@ app.get("/studio", (req, res) => {
   } catch(e) {
     res.status(500).send("studio.html no encontrado en " + SAFE_ROOT);
   }
+});
+
+// ── MONITOR · "el latido": pulso del sistema de un vistazo ──
+app.get("/monitor/estado", (req, res) => {
+  const mem = process.memoryUsage();
+  res.json({
+    servidor: "vivo",
+    uptime_seg: Math.floor(process.uptime()),
+    memoria_mb: Math.round(mem.rss / 1024 / 1024),
+    heap_mb: Math.round(mem.heapUsed / 1024 / 1024),
+    agentes: Object.keys(AGENTES).length,
+    supabase: SUPABASE_KEY ? "conectado" : "sin clave",
+    cloudflare: (CF_ACCOUNT_ID && CF_TOKEN) ? "configurado" : "sin clave",
+    node: process.version,
+    hora: new Date().toISOString()
+  });
+});
+
+// ── MONITOR · "la consola en vivo": transmite los registros por SSE ──
+app.get("/monitor/logs", (req, res) => {
+  res.set({
+    "Content-Type": "text/event-stream",
+    "Cache-Control": "no-cache",
+    "Connection": "keep-alive",
+    "X-Accel-Buffering": "no"     // evita que un proxy retenga el flujo
+  });
+  if (res.flushHeaders) res.flushHeaders();
+  // primero mandamos lo que ya pasó (la cola reciente)
+  res.write("data: " + JSON.stringify({ tipo: "historial", lineas: bufferLogs }) + "\n\n");
+  clientesSSE.add(res);
+  // latido cada 25s para que la conexión no se caiga sola
+  const ping = setInterval(() => { try { res.write(": ping\n\n"); } catch(e) {} }, 25000);
+  req.on("close", () => { clearInterval(ping); clientesSSE.delete(res); });
 });
 app.get("/dashboard", (req, res) => res.sendFile(path.join(__dirname, "public", "dashboard.html")));
 

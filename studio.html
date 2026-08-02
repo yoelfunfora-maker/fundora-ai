@@ -211,6 +211,15 @@ svg { display: block; }
 }
 .btn-enviar:hover { transform: scale(1.05); }
 .btn-enviar:disabled { opacity: 0.4; cursor: not-allowed; transform: none; }
+.btn-mic, .btn-voz {
+  width: 40px; height: 40px; border-radius: 10px; background: none; color: var(--texto-suave);
+  border: 1px solid var(--borde); cursor: pointer; flex-shrink: 0; display: flex; align-items: center; justify-content: center;
+  transition: all 0.15s ease;
+}
+.btn-mic:hover, .btn-voz:hover { color: var(--texto); border-color: var(--aqua); }
+.btn-mic.grabando { background: #ef4444; color: #fff; border-color: #ef4444; animation: pulso-grabar 1.2s ease-in-out infinite; }
+@keyframes pulso-grabar { 0%,100%{box-shadow:0 0 0 0 rgba(239,68,68,0.5)} 50%{box-shadow:0 0 0 8px rgba(239,68,68,0)} }
+.btn-voz.activo { color: var(--aqua); border-color: var(--aqua); }
 
 /* Responsive */
 .velo { display: none; }
@@ -427,9 +436,11 @@ body.modo-incubadora #vista-incubadora { display: flex; }
 
   <div class="zona-input">
     <div class="caja-input">
+      <button class="btn-mic" id="btn-mic" onclick="alternarGrabacion()" title="Hablar por voz"></button>
       <textarea id="entrada" rows="1" placeholder="Escribe tu mensaje…"
         onkeydown="if(event.key==='Enter'&&!event.shiftKey){event.preventDefault();enviar();}"
         oninput="autoCrecer(this)"></textarea>
+      <button class="btn-voz activo" id="btn-voz" onclick="alternarVoz()" title="El agente responde por voz"></button>
       <button class="btn-enviar" id="btn-enviar" onclick="enviar()"></button>
     </div>
   </div>
@@ -608,6 +619,9 @@ const ICONOS = {
   clock:    '<circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/>',
   cpu:      '<rect x="4" y="4" width="16" height="16" rx="2"/><rect x="9" y="9" width="6" height="6"/><line x1="9" y1="1" x2="9" y2="4"/><line x1="15" y1="1" x2="15" y2="4"/><line x1="9" y1="20" x2="9" y2="23"/><line x1="15" y1="20" x2="15" y2="23"/><line x1="20" y1="9" x2="23" y2="9"/><line x1="20" y1="14" x2="23" y2="14"/><line x1="1" y1="9" x2="4" y2="9"/><line x1="1" y1="14" x2="4" y2="14"/>',
   database: '<ellipse cx="12" cy="5" rx="9" ry="3"/><path d="M21 12c0 1.66-4 3-9 3s-9-1.34-9-3"/><path d="M3 5v14c0 1.66 4 3 9 3s9-1.34 9-3V5"/>',
+  mic:      '<path d="M12 1a3 3 0 0 0-3 3v8a3 3 0 0 0 6 0V4a3 3 0 0 0-3-3z"/><path d="M19 10v2a7 7 0 0 1-14 0v-2"/><line x1="12" y1="19" x2="12" y2="23"/><line x1="8" y1="23" x2="16" y2="23"/>',
+  speaker:  '<polygon points="11 5 6 9 2 9 2 15 6 15 11 19 11 5"/><path d="M15.54 8.46a5 5 0 0 1 0 7.07"/>',
+  speakerOff:'<polygon points="11 5 6 9 2 9 2 15 6 15 11 19 11 5"/><line x1="23" y1="9" x2="17" y2="15"/><line x1="17" y1="9" x2="23" y2="15"/>',
   activity: '<polyline points="22 12 18 12 15 21 9 3 6 12 2 12"/>',
   chat:     '<path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/>',
   download: '<path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/>',
@@ -652,6 +666,8 @@ function pintarIconosFijos() {
   document.getElementById("ico-tv-editorial").innerHTML = icono("libro", 16);
   document.getElementById("ico-tv-libreria").innerHTML = icono("compass", 16);
   document.getElementById("ico-tv-incubadora").innerHTML = icono("crown", 16);
+  document.getElementById("btn-mic").innerHTML = icono("mic", 18);
+  document.getElementById("btn-voz").innerHTML = icono("speaker", 18);
   document.getElementById("lb-cerrar").innerHTML     = icono("x", 22);
   elegirAgente("general"); // fija el icono/nombre del agente inicial
 }
@@ -735,6 +751,77 @@ function nuevaConversacion() {
 }
 
 /* ─── Enviar mensaje al agente ─── */
+/* ─── Conversación por voz: hablar con el agente y que responda hablando ─── */
+let grabando = false, mediaRecorder = null, chunksAudio = [];
+let vozActivada = true;   // por defecto activado — el agente responde hablando
+
+/* Toca el micrófono: primera vez pide permiso y empieza a grabar; segunda vez para y transcribe */
+async function alternarGrabacion() {
+  const btn = document.getElementById("btn-mic");
+  if (!grabando) {
+    try {
+      const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+      chunksAudio = [];
+      mediaRecorder = new MediaRecorder(stream);
+      mediaRecorder.ondataavailable = e => { if (e.data.size > 0) chunksAudio.push(e.data); };
+      mediaRecorder.onstop = async () => {
+        stream.getTracks().forEach(t => t.stop());   // apaga el micrófono del teléfono
+        const blob = new Blob(chunksAudio, { type: "audio/webm" });
+        await transcribirYEnviar(blob);
+      };
+      mediaRecorder.start();
+      grabando = true;
+      btn.classList.add("grabando");
+    } catch(e) {
+      alert("No se pudo acceder al micrófono. Revisa los permisos del navegador.");
+    }
+  } else {
+    mediaRecorder.stop();
+    grabando = false;
+    btn.classList.remove("grabando");
+  }
+}
+
+/* Manda el audio grabado a Whisper y, si transcribe algo, lo envía como si lo hubieras escrito */
+async function transcribirYEnviar(blob) {
+  const entrada = document.getElementById("entrada");
+  entrada.placeholder = "Transcribiendo tu voz…";
+  try {
+    const form = new FormData();
+    form.append("audio", blob, "voz.webm");
+    const r = await fetch(`${API_BASE}/transcribir`, { method: "POST", body: form });
+    const d = await r.json();
+    entrada.placeholder = "Escribe tu mensaje…";
+    if (d.texto && d.texto.trim()) {
+      entrada.value = d.texto.trim();
+      enviar();   // el mensaje transcrito sigue el mismo camino que si lo hubieras tecleado
+    }
+  } catch(e) {
+    entrada.placeholder = "Escribe tu mensaje…";
+    alert("No se pudo transcribir el audio.");
+  }
+}
+
+/* Interruptor: que el agente responda solo con texto, o también hablando */
+function alternarVoz() {
+  vozActivada = !vozActivada;
+  const btn = document.getElementById("btn-voz");
+  btn.classList.toggle("activo", vozActivada);
+  btn.innerHTML = icono(vozActivada ? "speaker" : "speakerOff", 18);
+}
+
+/* Convierte la respuesta del agente en audio y la reproduce — la "voz" del Studio */
+async function hablar(texto) {
+  try {
+    const r = await fetch(`${API_BASE}/generar/audio`, {
+      method: "POST", headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ texto: texto.slice(0, 500), idioma: "es" })   // MeloTTS solo procesa 500 caracteres por llamada
+    });
+    const d = await r.json();
+    if (d.audio) new Audio(d.audio).play().catch(() => {});
+  } catch(e) { /* si falla la voz, el texto ya se mostró de todas formas */ }
+}
+
 async function enviar() {
   const entrada = document.getElementById("entrada");
   const texto = entrada.value.trim();
@@ -754,6 +841,7 @@ async function enviar() {
     indicador.remove();
     if (data.conversacion_id) conversacionActual = data.conversacion_id;
     agregarMensaje("ia", data.respuesta || "Listo.", data.pasos, data.artefactos);
+    if (vozActivada && data.respuesta) hablar(data.respuesta);
     cargarConversaciones();
   } catch (e) {
     indicador.remove();

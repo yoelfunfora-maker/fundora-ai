@@ -410,7 +410,9 @@ body.modo-incubadora #vista-incubadora { display: flex; }
       <button class="tv-btn" id="tv-monitor" onclick="verVista('monitor')"><span class="ico" id="ico-tv-monitor"></span><span>Monitor</span></button>
       <button class="tv-btn" id="tv-biblioteca" onclick="verVista('biblioteca')"><span class="ico" id="ico-tv-biblioteca"></span><span>Stock</span></button>
       <button class="tv-btn" id="tv-editorial" onclick="verVista('editorial')"><span class="ico" id="ico-tv-editorial"></span><span>Libros</span></button>
-      <button class="tv-btn" id="tv-libreria" onclick="verVista('libreria')"><span class="ico" id="ico-tv-libreria"></span><span>Librería</span></button>
+      <button class="tv-btn" id="tv-libreria" onclick="verVista('libreria')" style="display:none"><span class="ico" id="ico-tv-libreria"></span><span>Librería</span></button>
+      <!-- Oculta a pedido de Yoel: no debe aparecer en el Studio, solo "Libros" (Crear) queda visible.
+           El código y la ruta siguen intactos por si se reactiva más adelante. -->
       <button class="tv-btn" id="tv-incubadora" onclick="verVista('incubadora')"><span class="ico" id="ico-tv-incubadora"></span><span>Incubadora</span></button>
     </div>
   </div>

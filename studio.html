@@ -284,6 +284,14 @@ body.modo-editorial #vista-editorial { display: flex; }
 .rz-resultado { background: var(--oceano); border: 1px solid var(--borde); border-radius: 10px; padding: 12px; color: var(--texto); font-size: 14px; line-height: 1.6; white-space: pre-wrap; display: none; }
 .rz-copiar { align-self: flex-start; background: none; border: 1px solid var(--borde); color: var(--oro); font-size: 12px; padding: 5px 10px; border-radius: 8px; cursor: pointer; margin-top: 8px; }
 
+/* ─── Biblioteca Gratuita (Project Gutenberg) ─── */
+.gb-item { display: flex; justify-content: space-between; align-items: center; gap: 10px; padding: 9px 0; border-bottom: 1px solid var(--borde); }
+.gb-item:last-child { border-bottom: none; }
+.gb-info { color: var(--texto); font-size: 13px; line-height: 1.4; }
+.gb-info small { display: block; color: var(--texto-suave); font-size: 11px; margin-top: 2px; }
+.gb-item button { background: none; border: 1px solid var(--borde); color: var(--oro); font-size: 12px; padding: 5px 10px; border-radius: 8px; cursor: pointer; flex-shrink: 0; }
+.gb-item button:disabled { opacity: 0.4; color: var(--texto-suave); }
+
 /* El latido: tarjetas con el pulso del sistema */
 .latido { display: grid; grid-template-columns: repeat(auto-fit, minmax(128px, 1fr)); gap: 12px; }
 .tarjeta-estado { display: flex; align-items: center; gap: 12px; background: var(--superficie); border: 1px solid var(--borde); border-radius: 12px; padding: 14px 16px; }
@@ -384,6 +392,14 @@ body.modo-editorial #vista-editorial { display: flex; }
 
   <!-- ═══ VISTA EDITORIAL · Estudio de Libros ═══ -->
   <div id="vista-editorial">
+    <div class="rz-caja">
+      <h3 class="ed-titulo">Biblioteca gratuita (dominio público)</h3>
+      <div class="ed-fila">
+        <input id="gb-buscar" placeholder="Busca un clásico: título o autor…" style="flex:1;background:var(--oceano);border:1px solid var(--borde);border-radius:10px;color:var(--texto);font-family:'Inter';font-size:14px;padding:9px 12px" onkeydown="if(event.key==='Enter')buscarLibrosGratis()">
+        <button class="ed-btn" onclick="buscarLibrosGratis()">Buscar</button>
+      </div>
+      <div id="gb-resultados"></div>
+    </div>
     <div class="rz-caja">
       <h3 class="ed-titulo">Resumir un texto</h3>
       <textarea id="rz-texto" rows="4" placeholder="Pega aquí cualquier texto — un artículo, un documento, un capítulo…"></textarea>
@@ -833,6 +849,46 @@ function pintarPieza(it) {
 function ampliarUrl(url) {
   document.getElementById("lightbox-img").src = url;
   document.getElementById("lightbox").classList.add("visible");
+}
+
+/* ─── Biblioteca Gratuita (Project Gutenberg) ─── */
+async function buscarLibrosGratis() {
+  const q = document.getElementById("gb-buscar").value.trim();
+  if (!q) return;
+  const cont = document.getElementById("gb-resultados");
+  cont.innerHTML = '<div class="ed-estado">Buscando en la biblioteca…</div>';
+  try {
+    const r = await fetch(`${API_BASE}/libro/buscar?q=${encodeURIComponent(q)}`);
+    const d = await r.json();
+    if (!d.ok || !d.libros.length) {
+      cont.innerHTML = '<div class="ed-estado">Sin resultados. Prueba otro título — el catálogo es sobre todo clásicos y funciona mejor en inglés.</div>';
+      return;
+    }
+    cont.innerHTML = d.libros.map(b => `
+      <div class="gb-item">
+        <div class="gb-info">${b.titulo}<small>${b.autor} · ${b.idioma}</small></div>
+        <button onclick="importarLibroGratis(${b.id})" ${b.tieneTexto ? "" : "disabled"}>${b.tieneTexto ? "Importar" : "Sin texto"}</button>
+      </div>`).join("");
+  } catch(e) { cont.innerHTML = '<div class="ed-estado">No se pudo buscar. Revisa la conexión.</div>'; }
+}
+
+/* Trae el texto completo del libro elegido y lo deja listo en la caja de Resumir */
+async function importarLibroGratis(id) {
+  const cont = document.getElementById("gb-resultados");
+  const aviso = document.createElement("div");
+  aviso.className = "ed-estado"; aviso.textContent = "Descargando el libro completo…";
+  cont.prepend(aviso);
+  try {
+    const r = await fetch(`${API_BASE}/libro/importar/${id}`);
+    const d = await r.json();
+    aviso.remove();
+    if (!d.ok) { alert("No se pudo importar: " + (d.error || "")); return; }
+    // Los textos de un libro entero son largos: la caja de Resumir usa map-reduce, así que aguanta bien
+    document.getElementById("rz-texto").value = d.texto.slice(0, 60000);
+    document.getElementById("rz-resultado").style.display = "none";
+    document.getElementById("rz-texto").scrollIntoView({ behavior: "smooth", block: "center" });
+    alert(`"${d.titulo}" importado (${d.caracteres.toLocaleString()} caracteres). Ya está en la caja de arriba: puedes resumirlo, o copiar un fragmento como base para un libro nuevo.`);
+  } catch(e) { aviso.remove(); alert("Error al importar: " + e.message); }
 }
 
 /* ─── Resumir un texto suelto ─── */

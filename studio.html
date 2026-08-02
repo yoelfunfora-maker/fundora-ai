@@ -277,6 +277,13 @@ body.modo-editorial #vista-editorial { display: flex; }
 .ed-cap p { color: var(--texto-suave); font-size: 14px; line-height: 1.65; white-space: pre-wrap; }
 .ed-estado { color: var(--texto-suave); font-size: 13px; text-align: center; padding: 8px; }
 
+/* ─── Cajita de Resumir (dentro de Editorial) ─── */
+.rz-caja { background: var(--superficie); border: 1px solid var(--borde); border-radius: 14px; padding: 16px; display: flex; flex-direction: column; gap: 12px; }
+#rz-texto { background: var(--oceano); border: 1px solid var(--borde); border-radius: 10px; color: var(--texto); font-family: 'Inter'; font-size: 14px; padding: 10px 12px; width: 100%; resize: vertical; }
+#rz-nivel { background: var(--oceano); border: 1px solid var(--borde); border-radius: 10px; color: var(--texto); font-family: 'Inter'; font-size: 14px; padding: 9px 12px; }
+.rz-resultado { background: var(--oceano); border: 1px solid var(--borde); border-radius: 10px; padding: 12px; color: var(--texto); font-size: 14px; line-height: 1.6; white-space: pre-wrap; display: none; }
+.rz-copiar { align-self: flex-start; background: none; border: 1px solid var(--borde); color: var(--oro); font-size: 12px; padding: 5px 10px; border-radius: 8px; cursor: pointer; margin-top: 8px; }
+
 /* El latido: tarjetas con el pulso del sistema */
 .latido { display: grid; grid-template-columns: repeat(auto-fit, minmax(128px, 1fr)); gap: 12px; }
 .tarjeta-estado { display: flex; align-items: center; gap: 12px; background: var(--superficie); border: 1px solid var(--borde); border-radius: 12px; padding: 14px 16px; }
@@ -377,6 +384,19 @@ body.modo-editorial #vista-editorial { display: flex; }
 
   <!-- ═══ VISTA EDITORIAL · Estudio de Libros ═══ -->
   <div id="vista-editorial">
+    <div class="rz-caja">
+      <h3 class="ed-titulo">Resumir un texto</h3>
+      <textarea id="rz-texto" rows="4" placeholder="Pega aquí cualquier texto — un artículo, un documento, un capítulo…"></textarea>
+      <div class="ed-fila">
+        <select id="rz-nivel">
+          <option value="breve">Breve (2-3 frases)</option>
+          <option value="medio" selected>Medio (un párrafo)</option>
+          <option value="detallado">Detallado (con puntos clave)</option>
+        </select>
+        <button class="ed-btn" id="rz-btn" onclick="resumirAhora()">Resumir</button>
+      </div>
+      <div class="rz-resultado" id="rz-resultado"></div>
+    </div>
     <div class="ed-form">
       <h3 class="ed-titulo">Estudio de Libros</h3>
       <textarea id="ed-idea" rows="2" placeholder="¿De qué trata tu libro? O pega aquí tu propio texto para partir de él…"></textarea>
@@ -815,7 +835,44 @@ function ampliarUrl(url) {
   document.getElementById("lightbox").classList.add("visible");
 }
 
-/* ─── Editorial · Estudio de Libros ─── */
+/* ─── Resumir un texto suelto ─── */
+async function resumirAhora() {
+  const texto = document.getElementById("rz-texto").value.trim();
+  if (!texto) { alert("Pega un texto para resumir."); return; }
+  const nivel = document.getElementById("rz-nivel").value;
+  const btn = document.getElementById("rz-btn");
+  const res = document.getElementById("rz-resultado");
+  btn.disabled = true; btn.textContent = "Resumiendo…";
+  res.style.display = "block"; res.textContent = "Un momento…";
+  try {
+    const r = await fetch(`${API_BASE}/resumir`, {
+      method: "POST", headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ texto, nivel })
+    });
+    const d = await r.json();
+    res.textContent = d.ok ? d.resumen : ("No se pudo resumir: " + (d.error || ""));
+  } catch(e) { res.textContent = "Error: " + e.message; }
+  finally { btn.disabled = false; btn.textContent = "Resumir"; }
+}
+
+/* ─── Narrar un capítulo ya escrito (lo manda al Stock como audio) ─── */
+async function narrarCapitulo(n) {
+  const cap = libroEnCurso.capitulos.find(c => c.n === n);
+  if (!cap) return;
+  const btn = document.getElementById(`narrar-${n}`);
+  btn.disabled = true; btn.textContent = "Narrando…";  // tarda: la voz se genera por partes
+  try {
+    const r = await fetch(`${API_BASE}/narrar`, {
+      method: "POST", headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ texto: cap.texto, lang: "ES" })
+    });
+    const d = await r.json();
+    if (!d.ok) throw new Error(d.error || "error");
+    btn.textContent = "Narrado — en tu Stock";
+  } catch(e) {
+    btn.disabled = false; btn.textContent = "Reintentar narrar";
+  }
+}
 let libroEnCurso = null;   // { esquema, capitulos:[{n,titulo,texto}] }
 
 /* Paso 1: pedir el esquema (título, sinopsis, personajes, índice) */
@@ -886,6 +943,9 @@ async function escribirLibro() {
       libroEnCurso.capitulos.push({ n: cap.n, titulo: cap.titulo, texto });
       document.querySelector(`#cap-${cap.n} p`).textContent = texto;
       document.querySelector(`#cap-${cap.n} p`).className = "";
+      // Botón para convertir este capítulo en audio, directo al Stock
+      document.getElementById(`cap-${cap.n}`).insertAdjacentHTML("beforeend",
+        `<button class="ed-btn" id="narrar-${cap.n}" onclick="narrarCapitulo(${cap.n})" style="margin-top:10px;padding:8px 12px;font-size:13px">Narrar este capítulo</button>`);
     } catch(e) {
       document.querySelector(`#cap-${cap.n} p`).textContent = "Error: " + e.message;
     }

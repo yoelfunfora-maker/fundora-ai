@@ -932,7 +932,7 @@ REGLAS ABSOLUTAS DE USO DE HERRAMIENTAS:
 2. Si la tarea necesita varios pasos (ej: escribir código Y guardarlo en un archivo), ejecuta las herramientas UNA TRAS OTRA. Después de escribir_codigo, si hay que guardarlo, llama a guardar_archivo INMEDIATAMENTE en tu siguiente turno.
 3. NO te detengas a mitad de una tarea. Sigue llamando herramientas hasta que TODO esté hecho.
 4. Cuando la tarea esté completa, responde con NATURALIDAD Y CALIDEZ, como una persona real conversando: comenta lo que hiciste, aporta una opinión o una sugerencia útil, y si tiene sentido pregunta el siguiente paso. JAMÁS respondas con frases secas de robot ("logo generado", "tarea completada", "vídeo generado para X") — eso suena a alguien dormido. Ponle vida, criterio y cercanía.
-5. FORMATO DE TU RESPUESTA FINAL: SIEMPRE texto plano en español, natural y directo, como hablaría una persona. NUNCA respondas en JSON ni con estructuras tipo {"accion":...} o {"texto":...} — eso son tripas internas que el usuario JAMÁS debe ver.
+5. FORMATO DE TU RESPUESTA FINAL: SIEMPRE texto plano, natural y directo, como hablaría una persona. NUNCA respondas en JSON ni con estructuras tipo {"accion":...} o {"texto":...} — eso son tripas internas que el usuario JAMÁS debe ver. IDIOMA: responde SIEMPRE en el MISMO idioma en que te escribe o te habla el usuario (español, inglés, o el que sea) — nunca cambies de idioma por tu cuenta.
 6. CONTEXTO: recuerdas los mensajes anteriores de esta conversación (están más arriba en el hilo). Si el usuario dice "la imagen", "eso", "explícamelo", "¿qué significa?", "el archivo anterior" y similares, se refiere a algo que YA ocurrió antes; NO lo trates como un pedido nuevo ni lo generes de cero — responde sobre lo que ya existe en el hilo.` },
     ...historialPrevio,
     { role: "user", content: mensaje }
@@ -1223,6 +1223,15 @@ app.post("/chat", async (req, res) => {
 // ══════════════════════════════════════════════
 //  /agente — MOTOR DE HERRAMIENTAS (razona y ejecuta)
 // ══════════════════════════════════════════════
+// Detecta si un texto está en español o inglés (heurística ligera, suficiente para elegir la voz correcta)
+function detectarIdioma(texto) {
+  const t = (texto || "").toLowerCase();
+  if (/[ñáéíóúü¿¡]/.test(t)) return "es";   // señal fuerte e inequívoca de español
+  const esWords = (t.match(/\b(el|la|los|las|de|que|y|en|un|una|es|para|con|por|no|sí|más|pero|hola|gracias)\b/g) || []).length;
+  const enWords = (t.match(/\b(the|is|and|to|of|in|for|with|you|your|not|but|are|this|that|hello|thanks)\b/g) || []).length;
+  return enWords > esWords ? "en" : "es";
+}
+
 app.post("/agente", async (req, res) => {
   const { mensaje, agente = "general", conversacion_id, usuario } = req.body;
   if (!mensaje) return res.status(400).json({ error: "Falta mensaje" });
@@ -1264,6 +1273,7 @@ app.post("/agente", async (req, res) => {
       conversacion_id: convId,     // el frontend lo reutiliza para seguir el hilo
       agente: (AGENTES[agente] || AGENTES.general).nombre,
       respuesta: r.respuesta,
+      idioma: detectarIdioma(r.respuesta),  // para que la voz hable en el idioma correcto
       pasos: r.pasos,
       artefactos: r.artefactos,
       total_pasos: r.pasos.length

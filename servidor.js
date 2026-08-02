@@ -66,7 +66,9 @@ const CF_ACCOUNT_ID = process.env.CF_ACCOUNT_ID || "";
 const CF_TOKEN = process.env.CF_TOKEN || "";
 const GROQ_KEY = process.env.GROQ_KEY || "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";
 const JWT_SECRET = process.env.JWT_SECRET || "fundora-ai-secreto-2026";
-const SAFE_ROOT = path.join(os.homedir(), "fundora-ai");
+const SAFE_ROOT = __dirname; // Antes usaba os.homedir()+"fundora-ai" (solo válido por coincidencia en Termux);
+                              // __dirname siempre apunta a la carpeta donde vive ESTE archivo, así que
+                              // funciona igual en Termux, en Render, o en cualquier otro servidor futuro.
 // Termux NO tiene /tmp — usamos un directorio propio dentro de fundora-ai
 const TMP_DIR = path.join(SAFE_ROOT, ".tmp");
 try { if (!fs.existsSync(TMP_DIR)) fs.mkdirSync(TMP_DIR, { recursive: true }); } catch(e) {}

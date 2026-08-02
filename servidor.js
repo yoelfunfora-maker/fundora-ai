@@ -64,6 +64,7 @@ const SUPABASE_URL = "https://vmjmiabxjmcrovnirbkj.supabase.co";
 const SUPABASE_KEY = process.env.SUPABASE_KEY || process.env.SUPABASE_ANON_KEY || "";
 const CF_ACCOUNT_ID = process.env.CF_ACCOUNT_ID || "";
 const CF_TOKEN = process.env.CF_TOKEN || "";
+const GOOGLE_TTS_API_KEY = process.env.GOOGLE_TTS_API_KEY || ""; // voz de Google, gratis hasta 1M/4M caracteres al mes
 const GROQ_KEY = process.env.GROQ_KEY || "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";
 const JWT_SECRET = process.env.JWT_SECRET || "fundora-ai-secreto-2026";
 const SAFE_ROOT = __dirname; // Antes usaba os.homedir()+"fundora-ai" (solo válido por coincidencia en Termux);
@@ -536,7 +537,29 @@ async function generarImagen(prompt) {
 }
 
 // ── AUDIO: Texto → Voz (MeloTTS) ──
-async function generarAudio(texto, lang = "ES") {
+// Voz de Google Cloud (WaveNet) — mucho más natural que MeloTTS, gratis hasta 1M caracteres/mes
+async function generarAudioGoogle(texto, lang = "ES") {
+  const textoLimpio = texto.replace(/[#*`_>]/g, "").slice(0, 5000).trim(); // Google admite textos largos, sin el tope de 500 de MeloTTS
+  const esIngles = /^(en|en-us|english|ingles|inglés)$/i.test((lang || "").toLowerCase());
+  const languageCode = esIngles ? "en-US" : "es-US";
+  const voiceName = esIngles ? "en-US-Wavenet-D" : "es-US-Wavenet-A";
+
+  const resp = await fetch(`https://texttospeech.googleapis.com/v1/text:synthesize?key=${GOOGLE_TTS_API_KEY}`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({
+      input: { text: textoLimpio },
+      voice: { languageCode, name: voiceName },
+      audioConfig: { audioEncoding: "MP3" }
+    })
+  });
+  const data = await resp.json();
+  if (!data.audioContent) throw new Error("Google TTS falló: " + JSON.stringify(data.error || data));
+  return { audio: "data:audio/mpeg;base64," + data.audioContent, texto: textoLimpio, idioma: esIngles ? "en" : "ES", motor: "google" };
+}
+
+// Voz de MeloTTS (Cloudflare) — más robótica, pero gratis sin necesitar clave adicional. Respaldo si Google falla.
+async function generarAudioMeloTTS(texto, lang = "ES") {
   const url = `https://api.cloudflare.com/client/v4/accounts/${CF_ACCOUNT_ID}/ai/run/${MODELOS.audio_tts}`;
   // Limpiar el texto: MeloTTS no maneja bien textos muy largos o con muchos símbolos
   const textoLimpio = texto.replace(/[#*`_>]/g, "").slice(0, 500).trim();
@@ -564,12 +587,22 @@ async function generarAudio(texto, lang = "ES") {
       });
       const data = await resp.json();
       if (data.success && data.result?.audio) {
-        return { audio: "data:audio/mpeg;base64," + data.result.audio, texto: textoLimpio, idioma };
+        return { audio: "data:audio/mpeg;base64," + data.result.audio, texto: textoLimpio, idioma, motor: "melotts" };
       }
       ultimoError = JSON.stringify(data.errors || data);
     } catch(e) { ultimoError = e.message; }
   }
   throw new Error("MeloTTS falló: " + ultimoError);
+}
+
+// Punto de entrada único que usa el resto del código: intenta Google (natural) primero,
+// y si no hay clave configurada o falla, cae a MeloTTS (robótica pero siempre disponible).
+async function generarAudio(texto, lang = "ES") {
+  if (GOOGLE_TTS_API_KEY) {
+    try { return await generarAudioGoogle(texto, lang); }
+    catch(e) { logger.warn("Google TTS falló, usando MeloTTS de respaldo: " + e.message); }
+  }
+  return await generarAudioMeloTTS(texto, lang);
 }
 
 // ── AUDIO: Voz → Texto (Whisper) ──

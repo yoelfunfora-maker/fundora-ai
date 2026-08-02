@@ -288,6 +288,13 @@ body.modo-editorial #vista-editorial { display: flex; }
 .gb-item { display: flex; justify-content: space-between; align-items: center; gap: 10px; padding: 9px 0; border-bottom: 1px solid var(--borde); }
 .gb-temas { display: flex; flex-wrap: wrap; gap: 6px; }
 .gb-temas button { background: var(--oceano); border: 1px solid var(--borde); color: var(--texto-suave); font-size: 11px; padding: 5px 10px; border-radius: 20px; cursor: pointer; }
+
+/* ─── Biblioteca Interna (archivos propios: pdf/epub/docx/txt) ─── */
+.bi-item { display: flex; justify-content: space-between; align-items: center; gap: 10px; padding: 9px 0; border-bottom: 1px solid var(--borde); }
+.bi-item:last-child { border-bottom: none; }
+.bi-info { color: var(--texto); font-size: 13px; }
+.bi-info small { display: block; color: var(--texto-suave); font-size: 11px; margin-top: 2px; }
+.bi-item button { background: none; border: 1px solid var(--borde); color: var(--oro); font-size: 12px; padding: 5px 10px; border-radius: 8px; cursor: pointer; flex-shrink: 0; }
 .gb-item:last-child { border-bottom: none; }
 .gb-info { color: var(--texto); font-size: 13px; line-height: 1.4; }
 .gb-info small { display: block; color: var(--texto-suave); font-size: 11px; margin-top: 2px; }
@@ -394,6 +401,15 @@ body.modo-editorial #vista-editorial { display: flex; }
 
   <!-- ═══ VISTA EDITORIAL · Estudio de Libros ═══ -->
   <div id="vista-editorial">
+    <div class="rz-caja">
+      <h3 class="ed-titulo">Tu biblioteca interna</h3>
+      <div class="ed-fila">
+        <input id="bi-buscar" placeholder="Buscar por nombre de archivo…" style="flex:1;background:var(--oceano);border:1px solid var(--borde);border-radius:10px;color:var(--texto);font-family:'Inter';font-size:14px;padding:9px 12px" onkeydown="if(event.key==='Enter')cargarBibliotecaInterna()">
+        <button class="ed-btn" onclick="cargarBibliotecaInterna()">Buscar</button>
+      </div>
+      <div id="bi-lista"></div>
+      <div class="ed-estado" style="text-align:left;padding:2px 0 0">Admite .txt, .md, .pdf, .docx y .epub — colócalos en la carpeta libros_entrada/ del servidor.</div>
+    </div>
     <div class="rz-caja">
       <h3 class="ed-titulo">Biblioteca gratuita (dominio público)</h3>
       <div class="ed-fila">
@@ -871,6 +887,44 @@ function pintarPieza(it) {
 function ampliarUrl(url) {
   document.getElementById("lightbox-img").src = url;
   document.getElementById("lightbox").classList.add("visible");
+}
+
+/* ─── Biblioteca Interna (archivos propios: pdf/epub/docx/txt en libros_entrada/) ─── */
+async function cargarBibliotecaInterna() {
+  const q = document.getElementById("bi-buscar").value.trim();
+  const cont = document.getElementById("bi-lista");
+  cont.innerHTML = '<div class="ed-estado">Buscando en tu biblioteca…</div>';
+  try {
+    const r = await fetch(`${API_BASE}/libro/listar-archivos?q=${encodeURIComponent(q)}`);
+    const d = await r.json();
+    if (!d.ok || !d.archivos.length) {
+      cont.innerHTML = '<div class="ed-estado">Aún no hay libros aquí. Coloca un .txt, .pdf, .docx o .epub en la carpeta libros_entrada/ del servidor.</div>';
+      return;
+    }
+    cont.innerHTML = d.archivos.map(a => `
+      <div class="bi-item">
+        <div class="bi-info">${a.nombre}<small>${a.formato} · ${(a.bytes/1024).toFixed(0)} KB</small></div>
+        <button onclick="cargarArchivoInterno('${a.nombre.replace(/'/g, "\\'")}')">Cargar</button>
+      </div>`).join("");
+  } catch(e) { cont.innerHTML = '<div class="ed-estado">No se pudo buscar en la biblioteca.</div>'; }
+}
+
+/* Extrae el texto del archivo elegido (sea cual sea su formato) y lo deja listo en la caja de Resumir */
+async function cargarArchivoInterno(nombre) {
+  const cont = document.getElementById("bi-lista");
+  const aviso = document.createElement("div");
+  aviso.className = "ed-estado"; aviso.textContent = "Leyendo el archivo…";
+  cont.prepend(aviso);
+  try {
+    const r = await fetch(`${API_BASE}/libro/leer-archivo?nombre=${encodeURIComponent(nombre)}`);
+    const d = await r.json();
+    aviso.remove();
+    if (!d.ok) { alert("No se pudo leer: " + (d.error || "")); return; }
+    document.getElementById("rz-texto").value = d.texto.slice(0, 60000);
+    document.getElementById("rz-resultado").style.display = "none";
+    document.getElementById("rz-texto").scrollIntoView({ behavior: "smooth", block: "center" });
+    alert(`"${nombre}" cargado (${d.caracteres.toLocaleString()} caracteres). Ya está en la caja de Resumir.`);
+  } catch(e) { aviso.remove(); alert("Error al leer el archivo: " + e.message); }
 }
 
 /* ─── Biblioteca Gratuita (Project Gutenberg) ─── */

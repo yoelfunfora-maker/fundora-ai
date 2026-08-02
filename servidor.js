@@ -938,6 +938,18 @@ REGLAS ABSOLUTAS DE USO DE HERRAMIENTAS:
     { role: "user", content: mensaje }
   ];
 
+  // ── Salvavidas contra "audios locos": una charla simple (saludo, gracias, ok…) NUNCA necesita
+  // herramientas. Si se lo ofrecemos igual, el modelo a veces alucina una llamada (ej. generar audio
+  // de la nada ante un simple "Hola"). Para esos casos respondemos SIN pasarle el toolsSchema —
+  // así es imposible que invente una acción, porque la opción ni siquiera está sobre la mesa.
+  const esCharlaSimple = /^(hola+|hi|hello+|hey+|buen[oa]s?\s*(d[ií]as?|tardes?|noches?)?|qu[eé]\s*tal|c[oó]mo\s*est[aá]s?|gracias+|ok(ay)?|vale|genial|perfecto|entendido|listo)[\s!.¡¿?]*$/i;
+  if (esCharlaSimple.test(mensaje.trim())) {
+    try {
+      const texto = await llamarCF(config.modelo, historial, 300);
+      return { respuesta: limpiarRespuesta(texto || "¡Hola! ¿En qué te ayudo hoy?"), pasos: [], artefactos: [] };
+    } catch(e) { /* si falla, seguimos al camino normal con herramientas como respaldo */ }
+  }
+
   const toolsSchema = Object.values(HERRAMIENTAS).map(h => h.def);
   const artefactos = [];   // imágenes, audios, videos, pdfs para el frontend
   const pasos = [];        // traza de lo que hizo el agente

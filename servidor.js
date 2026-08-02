@@ -1512,6 +1512,69 @@ app.post("/upload", upload.single("archivo"), async (req, res) => {
 });
 
 // ══════════════════════════════════════════════
+//  RESUMIR — textos cortos directo, largos por partes (map-reduce)
+// ══════════════════════════════════════════════
+const SYS_RESUMIDOR = `Eres un editor experto en síntesis. Resumes con precisión, sin inventar datos, conservando las ideas y el tono importantes del original.`;
+const UMBRAL_TROZO = 6000; // caracteres: por debajo, se resume de un tirón; por encima, se trocea
+
+// Divide el texto en trozos por párrafos (para no cortar una idea a la mitad)
+function trocearTexto(texto, tam = UMBRAL_TROZO) {
+  const parrafos = texto.split(/\n\s*\n/);
+  const trozos = []; let actual = "";
+  for (const p of parrafos) {
+    if ((actual + "\n\n" + p).length > tam && actual) { trozos.push(actual); actual = p; }
+    else actual = actual ? actual + "\n\n" + p : p;
+  }
+  if (actual) trozos.push(actual);
+  return trozos;
+}
+
+// nivel: "breve" (2-3 frases), "medio" (un párrafo), "detallado" (varios párrafos con puntos clave)
+async function resumirTexto(texto, nivel = "medio") {
+  const instrucciones = {
+    breve: "Resume en 2-3 frases, solo la idea central.",
+    medio: "Resume en un párrafo claro con los puntos principales.",
+    detallado: "Haz un resumen detallado, con los puntos clave en viñetas si ayuda a la claridad."
+  };
+  const instr = instrucciones[nivel] || instrucciones.medio;
+
+  if (texto.length <= UMBRAL_TROZO) {
+    // Texto corto: una sola llamada, directo
+    return (await llamarCF(MODELOS.potente, [
+      { role: "system", content: SYS_RESUMIDOR },
+      { role: "user", content: `${instr}\n\nTexto:\n${texto}` }
+    ], 700)).trim();
+  }
+
+  // Texto largo: MAP (resumir cada trozo) → REDUCE (resumir la unión de los resúmenes)
+  const trozos = trocearTexto(texto);
+  const resumenesParciales = [];
+  for (const trozo of trozos) {
+    const r = await llamarCF(MODELOS.potente, [
+      { role: "system", content: SYS_RESUMIDOR },
+      { role: "user", content: `Resume este fragmento conservando los datos y nombres importantes (se combinará con otros resúmenes después):\n\n${trozo}` }
+    ], 500);
+    resumenesParciales.push(r.trim());
+  }
+  const union = resumenesParciales.join("\n\n");
+  // Si la unión de resúmenes sigue siendo larga, se resume una vez más (reduce final)
+  const final = await llamarCF(MODELOS.potente, [
+    { role: "system", content: SYS_RESUMIDOR },
+    { role: "user", content: `${instr}\n\nEstos son los resúmenes de las distintas partes de un mismo texto; únelos en un resumen coherente del conjunto:\n\n${union}` }
+  ], 900);
+  return final.trim();
+}
+
+app.post("/resumir", async (req, res) => {
+  const { texto = "", nivel = "medio" } = req.body || {};
+  if (!texto.trim()) return res.status(400).json({ error: "Falta el texto a resumir" });
+  try {
+    const resumen = await resumirTexto(texto, nivel);
+    res.json({ ok: true, resumen, caracteres_original: texto.length, troceado: texto.length > UMBRAL_TROZO });
+  } catch(e) { logger.error("/resumir: " + e.message); res.status(500).json({ error: e.message }); }
+});
+
+// ══════════════════════════════════════════════
 //  ESTUDIO DE LIBROS — Escritor por capítulos
 // ══════════════════════════════════════════════
 const SYS_ESCRITOR = `Eres un escritor y editor profesional de Fundora Agency. Escribes libros y novelas con prosa cuidada, coherente y envolvente. Respetas el género, el tono y el idioma que se te pidan.`;
@@ -1585,6 +1648,69 @@ app.post("/libro/pdf", async (req, res) => {
     const url = archivarCreacion({ tipo: "pdf", pdf: r.pdf });   // queda en la Biblioteca/Stock
     res.json({ ok: true, url, nombre: r.nombre });
   } catch(e) { logger.error("/libro/pdf: " + e.message); res.status(500).json({ error: e.message }); }
+});
+
+// ══════════════════════════════════════════════
+//  NARRAR — audiolibro: trocea el texto, genera voz por partes y las une
+// ══════════════════════════════════════════════
+// Corta el texto en trozos que respetan el límite de MeloTTS (450 caracteres),
+// SIN partir una frase a la mitad — busca el punto más cercano antes del límite.
+function trocearParaVoz(texto, tam = 450) {
+  const limpio = texto.replace(/\s+/g, " ").trim();
+  const trozos = []; let resto = limpio;
+  while (resto.length > tam) {
+    let corte = resto.lastIndexOf(". ", tam);
+    if (corte < tam * 0.4) corte = tam;              // si no hay un punto cerca, se corta igual (mejor que trozos gigantes)
+    trozos.push(resto.slice(0, corte + 1).trim());
+    resto = resto.slice(corte + 1).trim();
+  }
+  if (resto) trozos.push(resto);
+  return trozos;
+}
+
+// Narra un texto completo: genera un MP3 por trozo y los concatena en uno solo con ffmpeg
+async function narrarTexto(texto, lang = "ES") {
+  const trozos = trocearParaVoz(texto);
+  const rutas = [];
+  for (let i = 0; i < trozos.length; i++) {
+    try {
+      const r = await generarAudio(trozos[i], lang);          // reusa el motor de voz ya probado
+      if (r && r.audio) {
+        const m = r.audio.match(/^data:audio\/[^;]+;base64,(.*)$/s);
+        if (m) {
+          const rp = path.join(TMP_DIR, `narr_${i}.mp3`);
+          fs.writeFileSync(rp, Buffer.from(m[1], "base64"));
+          rutas.push(rp);
+        }
+      }
+    } catch(e) { logger.warn(`Trozo de narración ${i} falló: ${e.message}`); }
+  }
+  if (!rutas.length) throw new Error("No se pudo narrar ningún fragmento");
+
+  const salida = path.join(TMP_DIR, `narracion_${Date.now()}.mp3`);
+  if (rutas.length === 1) {
+    fs.copyFileSync(rutas[0], salida);
+  } else {
+    // Concatenar todos los mp3 en uno solo, en el orden correcto
+    const lista = path.join(TMP_DIR, "narr_lista.txt");
+    fs.writeFileSync(lista, rutas.map(r => `file '${r}'`).join("\n"));
+    execSync(`ffmpeg -y -f concat -safe 0 -i "${lista}" -c copy "${salida}" 2>/dev/null`);
+    try { fs.unlinkSync(lista); } catch(e) {}
+  }
+  for (const r of rutas) { try { fs.unlinkSync(r); } catch(e) {} }
+  const b64 = fs.readFileSync(salida).toString("base64");
+  try { fs.unlinkSync(salida); } catch(e) {}
+  return { audio: "data:audio/mpeg;base64," + b64, partes: trozos.length };
+}
+
+app.post("/narrar", async (req, res) => {
+  const { texto = "", lang = "ES" } = req.body || {};
+  if (!texto.trim()) return res.status(400).json({ error: "Falta el texto a narrar" });
+  try {
+    const r = await narrarTexto(texto, lang);
+    const url = archivarCreacion({ tipo: "audio", audio: r.audio });   // queda en el Stock
+    res.json({ ok: true, url, partes: r.partes });
+  } catch(e) { logger.error("/narrar: " + e.message); res.status(500).json({ error: e.message }); }
 });
 
 app.get("/biblioteca", (req, res) => {

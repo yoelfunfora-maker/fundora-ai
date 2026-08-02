@@ -1,0 +1,144 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Incubadora Fundora — Proyectos</title>
+<!-- Mismas tipografías que el Studio: Space Grotesk para títulos (carácter, presencia), Inter para texto (legibilidad limpia) -->
+<link href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@500;700&family=Inter:wght@400;500;600&display=swap" rel="stylesheet">
+<style>
+  /* ── Paleta de marca: idéntica al Studio para que lo público y lo interno se sientan la misma empresa ── */
+  :root {
+    --oceano: #0a1622;        /* fondo — profundidad, seriedad, tecnología */
+    --superficie: #101f30;    /* tarjetas — un tono más claro para dar relieve sin perder sobriedad */
+    --borde: #1f3247;
+    --oro: #f0b429;           /* color de marca Fundora — cálido, de valor, "premium" */
+    --aqua: #2dd4bf;          /* acento vivo caribeño — para lo que es acción/tecnología (APK) */
+    --texto: #e8edf2;
+    --texto-suave: #7c92a8;
+  }
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  body {
+    background: var(--oceano);
+    color: var(--texto);
+    font-family: 'Inter', sans-serif;
+    min-height: 100vh;
+    padding: 40px 20px 80px;
+  }
+  .encabezado { max-width: 900px; margin: 0 auto 48px; text-align: center; }
+  .marca { display: flex; align-items: center; justify-content: center; gap: 10px; margin-bottom: 18px; }
+  .rombo { width: 22px; height: 22px; background: var(--oro); transform: rotate(45deg); border-radius: 4px; }
+  .marca span { font-family: 'Space Grotesk', sans-serif; font-weight: 700; font-size: 15px; letter-spacing: 0.5px; color: var(--texto-suave); }
+  h1 {
+    font-family: 'Space Grotesk', sans-serif;
+    font-weight: 700;
+    font-size: clamp(28px, 5vw, 42px);
+    margin-bottom: 12px;
+  }
+  .subtitulo { color: var(--texto-suave); font-size: 15px; max-width: 480px; margin: 0 auto; line-height: 1.5; }
+
+  .rejilla {
+    max-width: 1000px;
+    margin: 0 auto;
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(280px, 1fr));
+    gap: 20px;
+  }
+  .tarjeta {
+    background: var(--superficie);
+    border: 1px solid var(--borde);
+    border-radius: 16px;
+    padding: 22px;
+    display: flex;
+    flex-direction: column;
+    gap: 10px;
+  }
+  .fila-superior { display: flex; justify-content: space-between; align-items: flex-start; gap: 10px; }
+  .nombre { font-family: 'Space Grotesk', sans-serif; font-weight: 700; font-size: 18px; }
+  .badges { display: flex; gap: 6px; flex-shrink: 0; }
+  .badge { font-size: 10px; font-weight: 600; padding: 3px 9px; border-radius: 20px; white-space: nowrap; text-transform: uppercase; letter-spacing: 0.4px; }
+  .badge.apk { background: rgba(45,212,191,0.15); color: var(--aqua); }
+  .badge.web { background: rgba(240,180,41,0.15); color: var(--oro); }
+  .badge.estado { background: rgba(124,146,168,0.15); color: var(--texto-suave); text-transform: none; }
+
+  .descripcion { color: var(--texto-suave); font-size: 14px; line-height: 1.5; }
+  .meta { color: var(--texto-suave); font-size: 12px; }
+
+  .specs-toggle { background: none; border: none; color: var(--aqua); font-size: 12px; font-family: 'Inter'; cursor: pointer; text-align: left; padding: 0; margin-top: 2px; }
+  .specs { display: none; color: var(--texto-suave); font-size: 13px; line-height: 1.5; white-space: pre-wrap; background: var(--oceano); border-radius: 10px; padding: 10px 12px; margin-top: 4px; }
+  .specs.abierto { display: block; }
+
+  .cta {
+    display: inline-block;
+    text-align: center;
+    margin-top: 8px;
+    padding: 11px 16px;
+    border-radius: 10px;
+    font-weight: 600;
+    font-size: 14px;
+    text-decoration: none;
+    color: #1a1206;
+    background: var(--oro);
+  }
+  .cta.web { background: var(--aqua); color: #062521; }
+
+  .vacio, .error { text-align: center; color: var(--texto-suave); padding: 60px 20px; font-size: 14px; }
+</style>
+</head>
+<body>
+
+  <div class="encabezado">
+    <div class="marca"><div class="rombo"></div><span>FUNDORA PRIME ATLANTIC</span></div>
+    <h1>Incubadora de proyectos</h1>
+    <p class="subtitulo">Lo que estamos construyendo, desde Turks and Caicos hacia el mundo.</p>
+  </div>
+
+  <div class="rejilla" id="rejilla">
+    <div class="vacio">Cargando proyectos…</div>
+  </div>
+
+  <script>
+    // Detecta automáticamente el servidor que sirve esta misma página — funciona igual en Termux o en producción
+    const API_BASE = window.location.origin;
+
+    async function cargar() {
+      const cont = document.getElementById("rejilla");
+      try {
+        const r = await fetch(`${API_BASE}/incubadora/proyectos`);
+        const d = await r.json();
+        if (!d.ok || !d.proyectos.length) {
+          cont.innerHTML = '<div class="vacio">Aún no hay proyectos publicados. Vuelve pronto.</div>';
+          return;
+        }
+        cont.innerHTML = d.proyectos.map(pintarTarjeta).join("");
+      } catch(e) {
+        cont.innerHTML = '<div class="error">No se pudo cargar el catálogo en este momento.</div>';
+      }
+    }
+
+    function pintarTarjeta(p) {
+      const esApk = p.tipo === "apk";
+      const specsId = "specs-" + p.id;
+      return `
+        <div class="tarjeta">
+          <div class="fila-superior">
+            <div class="nombre">${p.nombre}</div>
+            <div class="badges">
+              <span class="badge ${esApk ? 'apk' : 'web'}">${esApk ? "APK" : "Web"}</span>
+            </div>
+          </div>
+          <span class="badge estado" style="align-self:flex-start">${p.estado || ""}</span>
+          <div class="descripcion">${p.descripcion || ""}</div>
+          ${esApk && p.peso_mb ? `<div class="meta">Peso: ${p.peso_mb} MB</div>` : ""}
+          ${p.especificaciones ? `
+            <button class="specs-toggle" onclick="document.getElementById('${specsId}').classList.toggle('abierto')">Ver especificaciones</button>
+            <div class="specs" id="${specsId}">${p.especificaciones}</div>
+          ` : ""}
+          <a class="cta ${esApk ? '' : 'web'}" href="${p.enlace}" target="_blank" rel="noopener">${esApk ? "Descargar APK" : "Abrir la web"}</a>
+        </div>`;
+    }
+
+    cargar();
+  </script>
+</body>
+</html>

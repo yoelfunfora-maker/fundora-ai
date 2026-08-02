@@ -249,10 +249,15 @@ body.modo-biblioteca #vista-biblioteca { display: flex; }
 
 /* ═══ EDITORIAL · Estudio de Libros ═══ */
 #vista-editorial { display: none; flex: 1; flex-direction: column; overflow-y: auto; padding: 20px; gap: 16px; }
+#vista-libreria { display: none; flex: 1; flex-direction: column; overflow-y: auto; padding: 20px; gap: 16px; }
 body.modo-editorial #mensajes,
 body.modo-editorial .zona-input,
 body.modo-editorial #dropdown-agente { display: none; }
 body.modo-editorial #vista-editorial { display: flex; }
+body.modo-libreria #mensajes,
+body.modo-libreria .zona-input,
+body.modo-libreria #dropdown-agente { display: none; }
+body.modo-libreria #vista-libreria { display: flex; }
 .ed-form { background: var(--superficie); border: 1px solid var(--borde); border-radius: 14px; padding: 16px; display: flex; flex-direction: column; gap: 12px; }
 .ed-titulo { color: var(--texto); font-size: 16px; font-weight: 600; }
 #ed-idea, #ed-tono, #ed-genero, #ed-caps { background: var(--oceano); border: 1px solid var(--borde); border-radius: 10px; color: var(--texto); font-family: 'Inter'; font-size: 14px; padding: 10px 12px; width: 100%; }
@@ -382,6 +387,7 @@ body.modo-editorial #vista-editorial { display: flex; }
       <button class="tv-btn" id="tv-monitor" onclick="verVista('monitor')"><span class="ico" id="ico-tv-monitor"></span><span>Monitor</span></button>
       <button class="tv-btn" id="tv-biblioteca" onclick="verVista('biblioteca')"><span class="ico" id="ico-tv-biblioteca"></span><span>Stock</span></button>
       <button class="tv-btn" id="tv-editorial" onclick="verVista('editorial')"><span class="ico" id="ico-tv-editorial"></span><span>Libros</span></button>
+      <button class="tv-btn" id="tv-libreria" onclick="verVista('libreria')"><span class="ico" id="ico-tv-libreria"></span><span>Librería</span></button>
     </div>
   </div>
 
@@ -407,8 +413,8 @@ body.modo-editorial #vista-editorial { display: flex; }
     <div class="galeria" id="galeria"></div>
   </div>
 
-  <!-- ═══ VISTA EDITORIAL · Estudio de Libros ═══ -->
-  <div id="vista-editorial">
+  <!-- ═══ VISTA LIBRERÍA · buscar, recomendar, resumir y narrar libros de otros ═══ -->
+  <div id="vista-libreria">
     <div class="rz-caja">
       <h3 class="ed-titulo">Recomendado para ti</h3>
       <button class="ed-btn" onclick="verRecomendaciones()">Ver recomendaciones</button>
@@ -451,7 +457,12 @@ body.modo-editorial #vista-editorial { display: flex; }
         <button class="ed-btn" id="rz-btn" onclick="resumirAhora()">Resumir</button>
       </div>
       <div class="rz-resultado" id="rz-resultado"></div>
+      <button class="ed-btn" id="rz-narrar-btn" onclick="narrarResumen()" style="display:none;margin-top:8px">Narrar este resumen</button>
     </div>
+  </div>
+
+  <!-- ═══ VISTA EDITORIAL · Estudio de Libros (crear, no buscar) ═══ -->
+  <div id="vista-editorial">
     <div class="ed-form">
       <h3 class="ed-titulo">Estudio de Libros</h3>
       <textarea id="ed-idea" rows="2" placeholder="¿De qué trata tu libro? O pega aquí tu propio texto para partir de él…"></textarea>
@@ -585,6 +596,7 @@ function pintarIconosFijos() {
   document.getElementById("ico-tv-monitor").innerHTML= icono("activity", 16);
   document.getElementById("ico-tv-biblioteca").innerHTML = icono("carpeta", 16);
   document.getElementById("ico-tv-editorial").innerHTML = icono("libro", 16);
+  document.getElementById("ico-tv-libreria").innerHTML = icono("compass", 16);
   document.getElementById("lb-cerrar").innerHTML     = icono("x", 22);
   elegirAgente("general"); // fija el icono/nombre del agente inicial
 }
@@ -850,10 +862,12 @@ function verVista(v) {
   document.body.classList.toggle("modo-monitor", v === "monitor");
   document.body.classList.toggle("modo-biblioteca", v === "biblioteca");
   document.body.classList.toggle("modo-editorial", v === "editorial");
+  document.body.classList.toggle("modo-libreria", v === "libreria");
   document.getElementById("tv-chat").classList.toggle("activa", v === "chat");
   document.getElementById("tv-monitor").classList.toggle("activa", v === "monitor");
   document.getElementById("tv-biblioteca").classList.toggle("activa", v === "biblioteca");
   document.getElementById("tv-editorial").classList.toggle("activa", v === "editorial");
+  document.getElementById("tv-libreria").classList.toggle("activa", v === "libreria");
   if (v === "monitor") iniciarMonitor(); else detenerMonitor();
   if (v === "biblioteca") cargarBiblioteca();
 }
@@ -1016,8 +1030,10 @@ async function resumirAhora() {
   const nivel = document.getElementById("rz-nivel").value;
   const btn = document.getElementById("rz-btn");
   const res = document.getElementById("rz-resultado");
+  const btnNarrar = document.getElementById("rz-narrar-btn");
   btn.disabled = true; btn.textContent = "Resumiendo…";
   res.style.display = "block"; res.textContent = "Un momento…";
+  btnNarrar.style.display = "none";
   try {
     const r = await fetch(`${API_BASE}/resumir`, {
       method: "POST", headers: { "Content-Type": "application/json" },
@@ -1025,8 +1041,26 @@ async function resumirAhora() {
     });
     const d = await r.json();
     res.textContent = d.ok ? d.resumen : ("No se pudo resumir: " + (d.error || ""));
+    if (d.ok) { btnNarrar.style.display = "inline-block"; btnNarrar.textContent = "Narrar este resumen"; btnNarrar.disabled = false; }
   } catch(e) { res.textContent = "Error: " + e.message; }
   finally { btn.disabled = false; btn.textContent = "Resumir"; }
+}
+
+/* Convierte el resumen (no el libro entero) en audio — cierra el ciclo buscar→resumen→narración */
+async function narrarResumen() {
+  const texto = document.getElementById("rz-resultado").textContent.trim();
+  if (!texto) return;
+  const btn = document.getElementById("rz-narrar-btn");
+  btn.disabled = true; btn.textContent = "Narrando…";
+  try {
+    const r = await fetch(`${API_BASE}/narrar`, {
+      method: "POST", headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ texto, lang: "ES" })
+    });
+    const d = await r.json();
+    if (!d.ok) throw new Error(d.error || "error");
+    btn.textContent = "Narrado — en tu Stock";
+  } catch(e) { btn.disabled = false; btn.textContent = "Reintentar narrar"; }
 }
 
 /* ─── Narrar un capítulo ya escrito (lo manda al Stock como audio) ─── */
@@ -1068,11 +1102,31 @@ async function crearEsquema() {
     });
     const d = await r.json();
     if (!d.ok) throw new Error(d.error || "no se pudo crear el esquema");
-    libroEnCurso = { esquema: d.esquema, capitulos: [] };
+    libroEnCurso = { esquema: d.esquema, capitulos: [], portada: null };
     pintarEsquema(d.esquema);
+    generarPortadaLibro(d.esquema, genero); // en paralelo — no bloquea ver el esquema
   } catch(e) {
     salida.innerHTML = `<div class="ed-estado">No se pudo crear el esquema: ${e.message}</div>`;
   } finally { btn.disabled = false; }
+}
+
+/* La carátula vende: se genera con IA en cuanto hay título y sinopsis, y viaja con el libro */
+async function generarPortadaLibro(esq, genero) {
+  const cont = document.getElementById("ed-salida");
+  const marco = document.createElement("div");
+  marco.className = "ed-esquema"; marco.id = "ed-portada-marco";
+  marco.innerHTML = '<div class="ed-estado">Diseñando la carátula…</div>';
+  cont.prepend(marco);
+  try {
+    const r = await fetch(`${API_BASE}/libro/portada`, {
+      method: "POST", headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ titulo: esq.titulo, sinopsis: esq.sinopsis, genero })
+    });
+    const d = await r.json();
+    if (!d.ok) { marco.remove(); return; }
+    libroEnCurso.portada = d.portada; // base64 — viaja con el libro hasta el PDF final
+    marco.innerHTML = `<img src="${d.portada}" style="width:100%;border-radius:10px;cursor:pointer" onclick="ampliarUrl('${d.portada}')">`;
+  } catch(e) { marco.remove(); }
 }
 
 /* Muestra el esquema y el botón para escribir el libro entero */
@@ -1140,7 +1194,7 @@ async function guardarLibroPDF() {
   try {
     const r = await fetch(`${API_BASE}/libro/pdf`, {
       method: "POST", headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ titulo: esq.titulo || "Libro", contenido })
+      body: JSON.stringify({ titulo: esq.titulo || "Libro", contenido, portada: libroEnCurso.portada || null })
     });
     const d = await r.json();
     if (!d.ok) throw new Error(d.error || "error");

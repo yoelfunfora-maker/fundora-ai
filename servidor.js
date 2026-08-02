@@ -1715,6 +1715,47 @@ app.get("/libro/leer-archivo", async (req, res) => {
 // ══════════════════════════════════════════════
 //  RECOMENDACIONES — sugiere títulos según lo que se ha buscado y leído
 // ══════════════════════════════════════════════
+// ══════════════════════════════════════════════
+//  INCUBADORA — catálogo de proyectos de Fundora (BetGroup Pro, Estudio de Libros, PAS, etc.)
+//  APK o web, con peso y especificaciones — se gestiona desde el Studio y se muestra en público
+// ══════════════════════════════════════════════
+app.get("/incubadora/proyectos", async (req, res) => {
+  try {
+    const r = await fetch(`${SUPABASE_URL}/rest/v1/proyectos_incubadora?select=*&order=orden.asc,creado_en.desc`, { headers: SUPA() });
+    const proyectos = await r.json();
+    res.json({ ok: true, proyectos });
+  } catch(e) { logger.error("/incubadora/proyectos GET: " + e.message); res.status(500).json({ error: e.message }); }
+});
+
+app.post("/incubadora/proyectos", async (req, res) => {
+  const { nombre, tipo, enlace, peso_mb = null, descripcion = "", especificaciones = "", estado = "en desarrollo", orden = 0 } = req.body || {};
+  if (!nombre || !tipo || !enlace) return res.status(400).json({ error: "Faltan nombre, tipo o enlace" });
+  try {
+    const r = await fetch(`${SUPABASE_URL}/rest/v1/proyectos_incubadora`, {
+      method: "POST", headers: { ...SUPA(), "Prefer": "return=representation" },
+      body: JSON.stringify({ nombre, tipo, enlace, peso_mb, descripcion, especificaciones, estado, orden })
+    });
+    const data = await r.json();
+    res.json({ ok: true, proyecto: data[0] || data });
+  } catch(e) { logger.error("/incubadora/proyectos POST: " + e.message); res.status(500).json({ error: e.message }); }
+});
+
+app.patch("/incubadora/proyectos/:id", async (req, res) => {
+  try {
+    await fetch(`${SUPABASE_URL}/rest/v1/proyectos_incubadora?id=eq.${req.params.id}`, {
+      method: "PATCH", headers: SUPA(), body: JSON.stringify(req.body || {})
+    });
+    res.json({ ok: true });
+  } catch(e) { logger.error("/incubadora/proyectos PATCH: " + e.message); res.status(500).json({ error: e.message }); }
+});
+
+app.delete("/incubadora/proyectos/:id", async (req, res) => {
+  try {
+    await fetch(`${SUPABASE_URL}/rest/v1/proyectos_incubadora?id=eq.${req.params.id}`, { method: "DELETE", headers: SUPA() });
+    res.json({ ok: true });
+  } catch(e) { logger.error("/incubadora/proyectos DELETE: " + e.message); res.status(500).json({ error: e.message }); }
+});
+
 app.get("/libro/recomendados", async (req, res) => {
   const usuario = (req.query.usuario || "anon").trim();
   try {
@@ -2108,6 +2149,16 @@ app.get("/studio", (req, res) => {
     res.type("html").send(fs.readFileSync(path.join(SAFE_ROOT, "studio.html"), "utf8"));
   } catch(e) {
     res.status(500).send("studio.html no encontrado en " + SAFE_ROOT);
+  }
+});
+
+// ── INCUBADORA · vitrina pública de proyectos (BetGroup Pro, PAS, Estudio de Libros, etc.) ──
+app.get("/incubadora", (req, res) => {
+  try {
+    res.set("Cache-Control", "no-store, no-cache, must-revalidate");
+    res.type("html").send(fs.readFileSync(path.join(SAFE_ROOT, "incubadora.html"), "utf8"));
+  } catch(e) {
+    res.status(500).send("incubadora.html no encontrado en " + SAFE_ROOT);
   }
 });
 

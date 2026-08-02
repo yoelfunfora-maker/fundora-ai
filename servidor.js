@@ -705,7 +705,7 @@ async function generarVideo(prompt, escenas = 3) {
   return { imagenes: imgs, escenas: imgs.length, nota: "Escenas individuales (ffmpeg no disponible)" };
 }
 
-async function generarPDF(titulo, contenido) {
+async function generarPDF(titulo, contenido, portadaBase64 = null) {
   return new Promise((resolve, reject) => {
     const doc = new PDFDocument({ size: "A4", margin: 50 });
     const chunks = [];
@@ -715,6 +715,14 @@ async function generarPDF(titulo, contenido) {
       resolve({ pdf: "data:application/pdf;base64," + b64, nombre: titulo + ".pdf" });
     });
     doc.on("error", reject);
+    // Si hay portada, va primero a página completa (es lo que "vende" al abrir el archivo)
+    if (portadaBase64) {
+      try {
+        const buf = Buffer.from(portadaBase64.replace(/^data:image\/[^;]+;base64,/, ""), "base64");
+        doc.image(buf, 0, 0, { width: doc.page.width, height: doc.page.height });
+        doc.addPage();
+      } catch(e) { logger.warn("No se pudo insertar la portada en el PDF: " + e.message); }
+    }
     doc.fontSize(22).font("Helvetica-Bold").text(titulo, { align: "center" });
     doc.moveDown(1.5);
     doc.fontSize(12).font("Helvetica").text(contenido, { align: "left", lineGap: 4 });
@@ -1799,6 +1807,19 @@ function extraerJSON(txt) {
 }
 
 // 1) ESQUEMA: título, sinopsis, personajes e índice (la "biblia" que da coherencia al libro)
+// Genera la CARÁTULA del libro con FLUX: es lo primero que ve un lector, y la portada vende
+app.post("/libro/portada", async (req, res) => {
+  const { titulo = "", sinopsis = "", genero = "" } = req.body || {};
+  if (!titulo) return res.status(400).json({ error: "Falta el título" });
+  try {
+    // Sin texto en el prompt: FLUX deforma las letras, así que jugamos con atmósfera y simbolismo, no palabras
+    const prompt = `Book cover illustration for a ${genero || "novel"} titled inspired by: ${sinopsis || titulo}. Professional book cover design, striking composition, dramatic lighting, no text, no letters, publisher quality, 4k detail`;
+    const r = await generarImagen(prompt);
+    const url = archivarCreacion({ tipo: "imagen", imagen: r.imagen }); // también queda en el Stock
+    res.json({ ok: true, portada: r.imagen, url });
+  } catch(e) { logger.error("/libro/portada: " + e.message); res.status(500).json({ error: e.message }); }
+});
+
 app.post("/libro/esquema", async (req, res) => {
   const { idea = "", genero = "novela", tono = "", capitulos = 5, idioma = "español", base = "" } = req.body || {};
   if (!idea && !base) return res.status(400).json({ error: "Falta la idea o un texto base" });
@@ -1850,10 +1871,10 @@ Escribe SOLO la prosa del capítulo (sin poner "Capítulo X" ni notas), entre 60
 
 // 3) PDF: arma el libro terminado en PDF y lo deja guardado en el Stock
 app.post("/libro/pdf", async (req, res) => {
-  const { titulo = "Libro", contenido = "" } = req.body || {};
+  const { titulo = "Libro", contenido = "", portada = null } = req.body || {};
   if (!contenido) return res.status(400).json({ error: "Falta el contenido del libro" });
   try {
-    const r = await generarPDF(titulo, contenido);
+    const r = await generarPDF(titulo, contenido, portada);
     const url = archivarCreacion({ tipo: "pdf", pdf: r.pdf });   // queda en la Biblioteca/Stock
     res.json({ ok: true, url, nombre: r.nombre });
   } catch(e) { logger.error("/libro/pdf: " + e.message); res.status(500).json({ error: e.message }); }

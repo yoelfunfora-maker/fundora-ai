@@ -421,6 +421,16 @@ async function guardarMemoria(agenteId, sessionId, tipo, contenido) {
 // ══════════════════════════════════════════════
 const SUPA = () => ({ "Content-Type": "application/json", "apikey": SUPABASE_KEY, "Authorization": `Bearer ${SUPABASE_KEY}` });
 
+// Anota una búsqueda o lectura en el historial (best-effort: si falla, no rompe la petición principal)
+async function registrarHistorial({ usuario = "anon", tipo, titulo = "", autor = "", tema = "", fuente = "", gutenberg_id = null }) {
+  try {
+    await fetch(`${SUPABASE_URL}/rest/v1/historial_lectura`, {
+      method: "POST", headers: SUPA(),
+      body: JSON.stringify({ usuario, tipo, titulo, autor, tema, fuente, gutenberg_id })
+    });
+  } catch(e) { logger.warn("No se pudo registrar en el historial: " + e.message); }
+}
+
 // Crear una conversación nueva → devuelve el registro (con su id)
 async function crearConversacion(usuario, titulo, agente) {
   const resp = await fetch(`${SUPABASE_URL}/rest/v1/conversaciones`, {
@@ -1588,6 +1598,7 @@ app.get("/libro/buscar", async (req, res) => {
       // Solo se puede importar si Gutenberg publicó una versión en texto plano
       tieneTexto: !!(b.formats && Object.keys(b.formats).some(k => k.startsWith("text/plain")))
     }));
+    registrarHistorial({ tipo: "busqueda", titulo: q, tema: modo === "tema" ? q : "", fuente: "gutenberg" }); // no bloquea la respuesta
     res.json({ ok: true, libros, total: data.count || libros.length });
   } catch(e) { logger.error("/libro/buscar: " + e.message); res.status(500).json({ error: e.message }); }
 });
@@ -1608,7 +1619,10 @@ app.get("/libro/importar/:id", async (req, res) => {
       if (finRelativo >= 0) texto = texto.slice(0, finRelativo);
     }
     texto = texto.trim();
-    res.json({ ok: true, titulo: meta.title, autor: (meta.authors && meta.authors[0] && meta.authors[0].name) || "", texto, caracteres: texto.length });
+    const titulo = meta.title, autor = (meta.authors && meta.authors[0] && meta.authors[0].name) || "";
+    const tema = (meta.subjects && meta.subjects[0]) || (meta.bookshelves && meta.bookshelves[0]) || "";
+    registrarHistorial({ tipo: "lectura", titulo, autor, tema, fuente: "gutenberg", gutenberg_id: meta.id });
+    res.json({ ok: true, titulo, autor, texto, caracteres: texto.length });
   } catch(e) { logger.error("/libro/importar: " + e.message); res.status(500).json({ error: e.message }); }
 });
 
@@ -1685,8 +1699,79 @@ app.get("/libro/leer-archivo", async (req, res) => {
   if (!fs.existsSync(ruta)) return res.status(404).json({ error: "Ese archivo no está en la biblioteca interna" });
   try {
     const texto = (await extraerTextoDeArchivo(ruta)).trim();
+    registrarHistorial({ tipo: "lectura", titulo: nombre, fuente: "interna" });
     res.json({ ok: true, nombre, texto, caracteres: texto.length });
   } catch(e) { logger.error("/libro/leer-archivo: " + e.message); res.status(500).json({ error: e.message }); }
+});
+
+// ══════════════════════════════════════════════
+//  RECOMENDACIONES — sugiere títulos según lo que se ha buscado y leído
+// ══════════════════════════════════════════════
+app.get("/libro/recomendados", async (req, res) => {
+  const usuario = (req.query.usuario || "anon").trim();
+  try {
+    // 1) Traer el historial reciente de este usuario (por ahora compartido, no hay cuentas públicas todavía)
+    const histResp = await fetch(
+      `${SUPABASE_URL}/rest/v1/historial_lectura?usuario=eq.${encodeURIComponent(usuario)}&order=creado_en.desc&limit=40`,
+      { headers: SUPA() }
+    );
+    const historial = await histResp.json();
+
+    if (!Array.isArray(historial) || historial.length === 0) {
+      return res.json({ ok: true, recomendaciones: [], motivo: "Aún no hay historial suficiente — busca o lee un par de libros y aquí aparecerán sugerencias" });
+    }
+
+    // 2) Contar qué temas y autores se repiten más, para saber qué le interesa de verdad
+    const conteoTemas = {}, conteoAutores = {}, yaLeidos = new Set();
+    for (const h of historial) {
+      if (h.tema) conteoTemas[h.tema] = (conteoTemas[h.tema] || 0) + 1;
+      if (h.autor) conteoAutores[h.autor] = (conteoAutores[h.autor] || 0) + 1;
+      if (h.titulo) yaLeidos.add(h.titulo.toLowerCase());
+    }
+    const temasTop = Object.entries(conteoTemas).sort((a, b) => b[1] - a[1]).slice(0, 3).map(t => t[0]);
+    const autoresTop = Object.entries(conteoAutores).sort((a, b) => b[1] - a[1]).slice(0, 2).map(a => a[0]);
+
+    // 3) Traer candidatos reales de Gutenberg para esos temas/autores (evitando repetir lo ya leído)
+    const candidatos = [];
+    for (const tema of temasTop) {
+      try {
+        const d = await (await fetch(`https://gutendex.com/books?topic=${encodeURIComponent(tema)}`)).json();
+        for (const b of (d.results || []).slice(0, 6)) {
+          if (!yaLeidos.has((b.title || "").toLowerCase())) {
+            candidatos.push({ id: b.id, titulo: b.title, autor: (b.authors && b.authors[0] && b.authors[0].name) || "", tema });
+          }
+        }
+      } catch(e) {}
+    }
+    for (const autor of autoresTop) {
+      try {
+        const d = await (await fetch(`https://gutendex.com/books?search=${encodeURIComponent(autor)}`)).json();
+        for (const b of (d.results || []).slice(0, 4)) {
+          if (!yaLeidos.has((b.title || "").toLowerCase())) {
+            candidatos.push({ id: b.id, titulo: b.title, autor: (b.authors && b.authors[0] && b.authors[0].name) || autor, tema: "mismo autor" });
+          }
+        }
+      } catch(e) {}
+    }
+
+    if (candidatos.length === 0) {
+      return res.json({ ok: true, recomendaciones: [], motivo: "No se encontraron títulos nuevos relacionados con tu historial por ahora" });
+    }
+
+    // 4) Pedirle al modelo que elija y justifique las mejores 5, en vez de mostrar la lista cruda
+    const listaCand = candidatos.slice(0, 20).map(c => `- "${c.titulo}" de ${c.autor} (tema: ${c.tema}, id:${c.id})`).join("\n");
+    const respuesta = await llamarCF(MODELOS.potente, [
+      { role: "system", content: "Eres un curador de lecturas. Eliges y justificas recomendaciones con criterio, en frases breves y personales, sin inventar datos fuera de la lista dada." },
+      { role: "user", content: `El lector ha buscado/leído sobre: ${temasTop.join(", ") || "temas variados"}${autoresTop.length ? " y autores como " + autoresTop.join(", ") : ""}.
+Elige las 5 mejores opciones de esta lista de candidatos y explica en una frase por qué encajarían con sus gustos:
+${listaCand}
+
+Responde SOLO con un JSON: {"recomendaciones":[{"titulo":"...","autor":"...","id":0,"motivo":"..."}]}` }
+    ], 900);
+    const parseado = extraerJSON(respuesta);
+    const recomendaciones = (parseado && parseado.recomendaciones) ? parseado.recomendaciones : candidatos.slice(0, 5).map(c => ({ titulo: c.titulo, autor: c.autor, id: c.id, motivo: `Relacionado con ${c.tema}` }));
+    res.json({ ok: true, recomendaciones });
+  } catch(e) { logger.error("/libro/recomendados: " + e.message); res.status(500).json({ error: e.message }); }
 });
 
 app.post("/resumir", async (req, res) => {

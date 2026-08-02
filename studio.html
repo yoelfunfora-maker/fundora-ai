@@ -753,6 +753,7 @@ function nuevaConversacion() {
 /* ─── Enviar mensaje al agente ─── */
 /* ─── Conversación por voz: hablar con el agente y que responda hablando ─── */
 let grabando = false, mediaRecorder = null, chunksAudio = [];
+let origenVoz = false;   // true solo si el mensaje que se está enviando vino de hablar, no de escribir
 let vozActivada = true;   // por defecto activado — el agente responde hablando
 
 /* Toca el micrófono: primera vez pide permiso y empieza a grabar; segunda vez para y transcribe */
@@ -794,7 +795,8 @@ async function transcribirYEnviar(blob) {
     entrada.placeholder = "Escribe tu mensaje…";
     if (d.texto && d.texto.trim()) {
       entrada.value = d.texto.trim();
-      enviar();   // el mensaje transcrito sigue el mismo camino que si lo hubieras tecleado
+      origenVoz = true;   // este mensaje vino de hablar → la respuesta también debe hablarse
+      enviar();
     }
   } catch(e) {
     entrada.placeholder = "Escribe tu mensaje…";
@@ -810,12 +812,12 @@ function alternarVoz() {
   btn.innerHTML = icono(vozActivada ? "speaker" : "speakerOff", 18);
 }
 
-/* Convierte la respuesta del agente en audio y la reproduce — la "voz" del Studio */
-async function hablar(texto) {
+/* Convierte la respuesta del agente en audio y la reproduce — la "voz" del Studio, en el idioma correcto */
+async function hablar(texto, idioma = "es") {
   try {
     const r = await fetch(`${API_BASE}/generar/audio`, {
       method: "POST", headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ texto: texto.slice(0, 500), idioma: "es" })   // MeloTTS solo procesa 500 caracteres por llamada
+      body: JSON.stringify({ texto: texto.slice(0, 500), idioma })   // MeloTTS solo procesa 500 caracteres por llamada
     });
     const d = await r.json();
     if (d.audio) new Audio(d.audio).play().catch(() => {});
@@ -841,11 +843,13 @@ async function enviar() {
     indicador.remove();
     if (data.conversacion_id) conversacionActual = data.conversacion_id;
     agregarMensaje("ia", data.respuesta || "Listo.", data.pasos, data.artefactos);
-    if (vozActivada && data.respuesta) hablar(data.respuesta);
+    if (origenVoz && vozActivada && data.respuesta) hablar(data.respuesta, data.idioma || "es");
+    origenVoz = false;   // se resetea siempre: el próximo mensaje escrito no debe hablar
     cargarConversaciones();
   } catch (e) {
     indicador.remove();
     agregarMensaje("ia", "Esta es una vista previa del diseño. Cuando el Studio corra en tu servidor, aquí verás la respuesta real del agente con su rastro de trabajo.", RASTRO_DEMO, null);
+    origenVoz = false;
   }
   enviando = false;
   document.getElementById("btn-enviar").disabled = false;

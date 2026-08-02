@@ -1565,6 +1565,51 @@ async function resumirTexto(texto, nivel = "medio") {
   return final.trim();
 }
 
+// ══════════════════════════════════════════════
+//  BIBLIOTECA GRATUITA — Project Gutenberg vía Gutendex
+//  70.000+ libros de DOMINIO PÚBLICO, sin clave, sin registro, legal para siempre
+// ══════════════════════════════════════════════
+app.get("/libro/buscar", async (req, res) => {
+  const q = (req.query.q || "").trim();
+  const idioma = (req.query.idioma || "").trim(); // "es" para filtrar solo español, vacío = todos
+  if (!q) return res.status(400).json({ error: "Falta el término de búsqueda" });
+  try {
+    let url = `https://gutendex.com/books?search=${encodeURIComponent(q)}`;
+    if (idioma) url += `&languages=${encodeURIComponent(idioma)}`;
+    const data = await (await fetch(url)).json();
+    const libros = (data.results || []).slice(0, 20).map(b => ({
+      id: b.id,
+      titulo: b.title,
+      autor: (b.authors && b.authors[0] && b.authors[0].name) || "Autor desconocido",
+      idioma: (b.languages && b.languages[0]) || "?",
+      descargas: b.download_count,
+      // Solo se puede importar si Gutenberg publicó una versión en texto plano
+      tieneTexto: !!(b.formats && Object.keys(b.formats).some(k => k.startsWith("text/plain")))
+    }));
+    res.json({ ok: true, libros, total: data.count || libros.length });
+  } catch(e) { logger.error("/libro/buscar: " + e.message); res.status(500).json({ error: e.message }); }
+});
+
+app.get("/libro/importar/:id", async (req, res) => {
+  try {
+    const meta = await (await fetch(`https://gutendex.com/books/${req.params.id}`)).json();
+    const formatos = meta.formats || {};
+    const claveTxt = Object.keys(formatos).find(k => k.startsWith("text/plain"));
+    if (!claveTxt) return res.status(404).json({ error: "Este libro no tiene una versión de texto plano disponible" });
+    let texto = await (await fetch(formatos[claveTxt])).text();
+    // Quitar el aviso legal que Gutenberg añade al inicio/final (no es parte de la obra)
+    const iniM = texto.search(/\*\*\*\s*START OF (THE|THIS) PROJECT GUTENBERG/i);
+    const finM = texto.search(/\*\*\*\s*END OF (THE|THIS) PROJECT GUTENBERG/i);
+    if (iniM >= 0) texto = texto.slice(texto.indexOf("\n", iniM) + 1);
+    if (finM >= 0) {
+      const finRelativo = texto.search(/\*\*\*\s*END OF (THE|THIS) PROJECT GUTENBERG/i); // recalcular tras el recorte inicial
+      if (finRelativo >= 0) texto = texto.slice(0, finRelativo);
+    }
+    texto = texto.trim();
+    res.json({ ok: true, titulo: meta.title, autor: (meta.authors && meta.authors[0] && meta.authors[0].name) || "", texto, caracteres: texto.length });
+  } catch(e) { logger.error("/libro/importar: " + e.message); res.status(500).json({ error: e.message }); }
+});
+
 app.post("/resumir", async (req, res) => {
   const { texto = "", nivel = "medio" } = req.body || {};
   if (!texto.trim()) return res.status(400).json({ error: "Falta el texto a resumir" });

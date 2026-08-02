@@ -5,17 +5,17 @@
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>Incubadora Fundora — Proyectos</title>
 <!-- Mismas tipografías que el Studio: Space Grotesk para títulos (carácter, presencia), Inter para texto (legibilidad limpia) -->
-<link href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@500;700&family=Inter:wght@400;500;600&display=swap" rel="stylesheet">
+<link href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@500;700&family=Inter:wght@400;500;600&family=JetBrains+Mono:wght@400;500;700&display=swap" rel="stylesheet">
 <style>
   /* ── Paleta de marca: idéntica al Studio para que lo público y lo interno se sientan la misma empresa ── */
   :root {
-    --oceano: #0a1622;        /* fondo — profundidad, seriedad, tecnología */
-    --superficie: #101f30;    /* tarjetas — un tono más claro para dar relieve sin perder sobriedad */
-    --borde: #1f3247;
-    --oro: #f0b429;           /* color de marca Fundora — cálido, de valor, "premium" */
-    --aqua: #2dd4bf;          /* acento vivo caribeño — para lo que es acción/tecnología (APK) */
-    --texto: #e8edf2;
-    --texto-suave: #7c92a8;
+    --oceano: #050508;        /* fondo — mismo negro profundo de PAS */
+    --superficie: #12121f;    /* tarjetas — tono "AI Model Store" de PAS */
+    --borde: rgba(255,255,255,0.08);
+    --oro: #f0b429;           /* color de marca Fundora — se mantiene intacto */
+    --aqua: #4d9fff;          /* acento vivo — ahora el azul de PAS, para fusionar ambos sitios */
+    --texto: #f0f0f8;
+    --texto-suave: #8888aa;
   }
   * { box-sizing: border-box; margin: 0; padding: 0; }
   body {
@@ -24,6 +24,13 @@
     font-family: 'Inter', sans-serif;
     min-height: 100vh;
     padding: 40px 20px 80px;
+    /* Textura de puntos + resplandor superior — misma firma visual que SectionFundoraAgency en PAS */
+    background-image:
+      linear-gradient(rgba(77,159,255,0.04) 1px, transparent 1px),
+      linear-gradient(90deg, rgba(77,159,255,0.04) 1px, transparent 1px),
+      radial-gradient(ellipse 900px 400px at 50% 0%, rgba(77,159,255,0.07) 0%, rgba(176,108,255,0.05) 40%, transparent 70%);
+    background-size: 48px 48px, 48px 48px, 100% 100%;
+    background-attachment: fixed;
   }
   .encabezado { max-width: 900px; margin: 0 auto 48px; text-align: center; }
   .marca { display: flex; align-items: center; justify-content: center; gap: 10px; margin-bottom: 18px; }
@@ -56,7 +63,7 @@
   .fila-superior { display: flex; justify-content: space-between; align-items: flex-start; gap: 10px; }
   .nombre { font-family: 'Space Grotesk', sans-serif; font-weight: 700; font-size: 18px; }
   .badges { display: flex; gap: 6px; flex-shrink: 0; }
-  .badge { font-size: 10px; font-weight: 600; padding: 3px 9px; border-radius: 20px; white-space: nowrap; text-transform: uppercase; letter-spacing: 0.4px; }
+  .badge { font-size: 10px; font-weight: 700; padding: 3px 9px; border-radius: 20px; white-space: nowrap; text-transform: uppercase; letter-spacing: 0.05em; font-family: 'JetBrains Mono', monospace; }
   .badge.apk { background: rgba(45,212,191,0.15); color: var(--aqua); }
   .badge.web { background: rgba(240,180,41,0.15); color: var(--oro); }
   .badge.estado { background: rgba(124,146,168,0.15); color: var(--texto-suave); text-transform: none; }

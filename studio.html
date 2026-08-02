@@ -286,6 +286,8 @@ body.modo-editorial #vista-editorial { display: flex; }
 
 /* ─── Biblioteca Gratuita (Project Gutenberg) ─── */
 .gb-item { display: flex; justify-content: space-between; align-items: center; gap: 10px; padding: 9px 0; border-bottom: 1px solid var(--borde); }
+.gb-temas { display: flex; flex-wrap: wrap; gap: 6px; }
+.gb-temas button { background: var(--oceano); border: 1px solid var(--borde); color: var(--texto-suave); font-size: 11px; padding: 5px 10px; border-radius: 20px; cursor: pointer; }
 .gb-item:last-child { border-bottom: none; }
 .gb-info { color: var(--texto); font-size: 13px; line-height: 1.4; }
 .gb-info small { display: block; color: var(--texto-suave); font-size: 11px; margin-top: 2px; }
@@ -398,6 +400,14 @@ body.modo-editorial #vista-editorial { display: flex; }
         <input id="gb-buscar" placeholder="Busca un clásico: título o autor…" style="flex:1;background:var(--oceano);border:1px solid var(--borde);border-radius:10px;color:var(--texto);font-family:'Inter';font-size:14px;padding:9px 12px" onkeydown="if(event.key==='Enter')buscarLibrosGratis()">
         <button class="ed-btn" onclick="buscarLibrosGratis()">Buscar</button>
       </div>
+      <div class="gb-temas">
+        <button onclick="buscarTema('business')">Sabiduría de negocios</button>
+        <button onclick="buscarTema('self-help')">Bienestar</button>
+        <button onclick="buscarTema('love')">Amor</button>
+        <button onclick="buscarTema('family')">Familia</button>
+        <button onclick="buscarTema('biography')">Hechos reales</button>
+        <button onclick="buscarTema('sports')">Deportes</button>
+      </div>
       <div id="gb-resultados"></div>
     </div>
     <div class="rz-caja">
@@ -418,16 +428,28 @@ body.modo-editorial #vista-editorial { display: flex; }
       <textarea id="ed-idea" rows="2" placeholder="¿De qué trata tu libro? O pega aquí tu propio texto para partir de él…"></textarea>
       <div class="ed-fila">
         <select id="ed-genero">
-          <option value="novela">Novela</option>
-          <option value="aventura">Aventura</option>
-          <option value="romance">Romance</option>
-          <option value="misterio">Misterio</option>
-          <option value="ciencia ficción">Ciencia ficción</option>
-          <option value="fantasía">Fantasía</option>
-          <option value="terror">Terror</option>
-          <option value="autoayuda">Autoayuda</option>
-          <option value="infantil">Infantil</option>
-          <option value="ensayo">Ensayo</option>
+          <optgroup label="Para ti">
+            <option value="sabiduría de negocios">Sabiduría de negocios</option>
+            <option value="bienestar personal">Bienestar</option>
+            <option value="inspiración y motivación">Inspiración</option>
+            <option value="relaciones de familia">Familia</option>
+            <option value="amor y relaciones de pareja">Amor</option>
+            <option value="arte de la seducción">Arte de seducción</option>
+            <option value="programación y tecnología">Programación</option>
+            <option value="hechos reales">Hechos reales</option>
+            <option value="deportes">Deportes</option>
+          </optgroup>
+          <optgroup label="Ficción">
+            <option value="novela">Novela</option>
+            <option value="aventura">Aventura</option>
+            <option value="romance">Romance</option>
+            <option value="misterio">Misterio</option>
+            <option value="ciencia ficción">Ciencia ficción</option>
+            <option value="fantasía">Fantasía</option>
+            <option value="terror">Terror</option>
+            <option value="infantil">Infantil</option>
+            <option value="ensayo">Ensayo</option>
+          </optgroup>
         </select>
         <input id="ed-tono" placeholder="Tono (opcional)">
       </div>
@@ -852,13 +874,20 @@ function ampliarUrl(url) {
 }
 
 /* ─── Biblioteca Gratuita (Project Gutenberg) ─── */
-async function buscarLibrosGratis() {
+/* Botones de tema: buscan por categoría (bookshelf de Gutenberg) en vez de título/autor */
+function buscarTema(tema) {
+  document.getElementById("gb-buscar").value = tema;
+  buscarLibrosGratis(true);
+}
+
+async function buscarLibrosGratis(porTema = false) {
   const q = document.getElementById("gb-buscar").value.trim();
   if (!q) return;
   const cont = document.getElementById("gb-resultados");
   cont.innerHTML = '<div class="ed-estado">Buscando en la biblioteca…</div>';
   try {
-    const r = await fetch(`${API_BASE}/libro/buscar?q=${encodeURIComponent(q)}`);
+    const modo = porTema ? "tema" : "texto";
+    const r = await fetch(`${API_BASE}/libro/buscar?q=${encodeURIComponent(q)}&modo=${modo}`);
     const d = await r.json();
     if (!d.ok || !d.libros.length) {
       cont.innerHTML = '<div class="ed-estado">Sin resultados. Prueba otro título — el catálogo es sobre todo clásicos y funciona mejor en inglés.</div>';

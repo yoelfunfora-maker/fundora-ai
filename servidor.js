@@ -1572,9 +1572,11 @@ async function resumirTexto(texto, nivel = "medio") {
 app.get("/libro/buscar", async (req, res) => {
   const q = (req.query.q || "").trim();
   const idioma = (req.query.idioma || "").trim(); // "es" para filtrar solo español, vacío = todos
+  const modo = (req.query.modo || "texto").trim(); // "texto" = título/autor, "tema" = asunto/categoría (bookshelf)
   if (!q) return res.status(400).json({ error: "Falta el término de búsqueda" });
   try {
-    let url = `https://gutendex.com/books?search=${encodeURIComponent(q)}`;
+    const parametro = modo === "tema" ? "topic" : "search";
+    let url = `https://gutendex.com/books?${parametro}=${encodeURIComponent(q)}`;
     if (idioma) url += `&languages=${encodeURIComponent(idioma)}`;
     const data = await (await fetch(url)).json();
     const libros = (data.results || []).slice(0, 20).map(b => ({

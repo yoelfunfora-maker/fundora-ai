@@ -1673,8 +1673,17 @@ async function narrarTexto(texto, lang = "ES") {
   const trozos = trocearParaVoz(texto);
   const rutas = [];
   for (let i = 0; i < trozos.length; i++) {
+    // Cloudflare a veces da un error interno pasajero — reintentamos una vez antes de rendirnos,
+    // para que un tropiezo aislado no deje un hueco de silencio en medio del audiolibro
+    let r = null;
+    for (let intento = 0; intento < 2 && !r; intento++) {
+      try { r = await generarAudio(trozos[i], lang); }
+      catch(e) {
+        logger.warn(`Trozo de narración ${i} (intento ${intento + 1}) falló: ${e.message}`);
+        if (intento === 0) await new Promise(res => setTimeout(res, 1500)); // pausa breve antes de reintentar
+      }
+    }
     try {
-      const r = await generarAudio(trozos[i], lang);          // reusa el motor de voz ya probado
       if (r && r.audio) {
         const m = r.audio.match(/^data:audio\/[^;]+;base64,(.*)$/s);
         if (m) {
@@ -1683,7 +1692,7 @@ async function narrarTexto(texto, lang = "ES") {
           rutas.push(rp);
         }
       }
-    } catch(e) { logger.warn(`Trozo de narración ${i} falló: ${e.message}`); }
+    } catch(e) { logger.warn(`Trozo de narración ${i} no se pudo guardar: ${e.message}`); }
   }
   if (!rutas.length) throw new Error("No se pudo narrar ningún fragmento");
 

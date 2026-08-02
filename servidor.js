@@ -1225,7 +1225,11 @@ app.post("/agente", async (req, res) => {
         previos = (data.mensajes || []).slice(-10).map(m => ({
           role: m.rol === "user" ? "user" : "assistant",
           content: String(m.contenido || "").slice(0, 1500)
-        })).filter(m => m.content);
+        }))
+        // Un turno roto (el agente se quedó sin pasos y no completó nada) NO debe
+        // recargarse como contexto — si no, el modelo "revive" la confusión en cada
+        // mensaje nuevo de ese mismo hilo, en vez de tratarlo como algo fresco.
+        .filter(m => m.content && !/tarea procesada \(se alcanzó el límite de pasos\)/i.test(m.content));
       } else {
         const convNueva = await crearConversacion(usuario, mensaje, agente);
         convId = convNueva?.id;

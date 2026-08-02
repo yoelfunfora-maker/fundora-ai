@@ -295,6 +295,14 @@ body.modo-editorial #vista-editorial { display: flex; }
 .bi-info { color: var(--texto); font-size: 13px; }
 .bi-info small { display: block; color: var(--texto-suave); font-size: 11px; margin-top: 2px; }
 .bi-item button { background: none; border: 1px solid var(--borde); color: var(--oro); font-size: 12px; padding: 5px 10px; border-radius: 8px; cursor: pointer; flex-shrink: 0; }
+
+/* ─── Recomendaciones ─── */
+.rec-item { padding: 10px 0; border-bottom: 1px solid var(--borde); }
+.rec-item:last-child { border-bottom: none; }
+.rec-item .rec-titulo { color: var(--texto); font-size: 14px; font-weight: 600; }
+.rec-item .rec-autor { color: var(--texto-suave); font-size: 12px; margin: 2px 0 4px; }
+.rec-item .rec-motivo { color: var(--texto-suave); font-size: 13px; line-height: 1.4; font-style: italic; }
+.rec-item button { margin-top: 6px; background: none; border: 1px solid var(--borde); color: var(--oro); font-size: 12px; padding: 4px 10px; border-radius: 8px; cursor: pointer; }
 .gb-item:last-child { border-bottom: none; }
 .gb-info { color: var(--texto); font-size: 13px; line-height: 1.4; }
 .gb-info small { display: block; color: var(--texto-suave); font-size: 11px; margin-top: 2px; }
@@ -401,6 +409,11 @@ body.modo-editorial #vista-editorial { display: flex; }
 
   <!-- ═══ VISTA EDITORIAL · Estudio de Libros ═══ -->
   <div id="vista-editorial">
+    <div class="rz-caja">
+      <h3 class="ed-titulo">Recomendado para ti</h3>
+      <button class="ed-btn" onclick="verRecomendaciones()">Ver recomendaciones</button>
+      <div id="rec-lista"></div>
+    </div>
     <div class="rz-caja">
       <h3 class="ed-titulo">Tu biblioteca interna</h3>
       <div class="ed-fila">
@@ -887,6 +900,28 @@ function pintarPieza(it) {
 function ampliarUrl(url) {
   document.getElementById("lightbox-img").src = url;
   document.getElementById("lightbox").classList.add("visible");
+}
+
+/* ─── Recomendado para ti ─── */
+async function verRecomendaciones() {
+  const cont = document.getElementById("rec-lista");
+  cont.innerHTML = '<div class="ed-estado">Pensando qué te podría gustar…</div>';
+  try {
+    const r = await fetch(`${API_BASE}/libro/recomendados`);
+    const d = await r.json();
+    if (!d.ok) { cont.innerHTML = '<div class="ed-estado">No se pudo cargar.</div>'; return; }
+    if (!d.recomendaciones || !d.recomendaciones.length) {
+      cont.innerHTML = `<div class="ed-estado">${d.motivo || "Todavía no hay suficiente historial. Busca o lee algún libro y vuelve aquí."}</div>`;
+      return;
+    }
+    cont.innerHTML = d.recomendaciones.map(rec => `
+      <div class="rec-item">
+        <div class="rec-titulo">${rec.titulo}</div>
+        <div class="rec-autor">${rec.autor || ""}</div>
+        <div class="rec-motivo">${rec.motivo || ""}</div>
+        ${rec.id ? `<button onclick="importarLibroGratis(${rec.id})">Importar</button>` : ""}
+      </div>`).join("");
+  } catch(e) { cont.innerHTML = '<div class="ed-estado">Error al buscar recomendaciones.</div>'; }
 }
 
 /* ─── Biblioteca Interna (archivos propios: pdf/epub/docx/txt en libros_entrada/) ─── */

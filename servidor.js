@@ -1612,6 +1612,83 @@ app.get("/libro/importar/:id", async (req, res) => {
   } catch(e) { logger.error("/libro/importar: " + e.message); res.status(500).json({ error: e.message }); }
 });
 
+// ══════════════════════════════════════════════
+//  BIBLIOTECA INTERNA — lee libros en cualquier formato desde su ruta,
+//  y el sistema los gestiona (listar, buscar, cargar)
+// ══════════════════════════════════════════════
+const DIR_ENTRADA = path.join(SAFE_ROOT, "libros_entrada");
+try { if (!fs.existsSync(DIR_ENTRADA)) fs.mkdirSync(DIR_ENTRADA, { recursive: true }); } catch(e) {}
+
+// Extrae el texto de un archivo sin importar su formato (.txt/.md, .pdf, .docx, .epub)
+async function extraerTextoDeArchivo(rutaCompleta) {
+  const ext = path.extname(rutaCompleta).toLowerCase();
+
+  if (ext === ".txt" || ext === ".md") {
+    return fs.readFileSync(rutaCompleta, "utf8");
+  }
+
+  if (ext === ".pdf") {
+    let pdfParse;
+    try { pdfParse = require("pdf-parse"); }
+    catch(e) { throw new Error("Falta instalar la librería de PDF: npm install pdf-parse"); }
+    const datos = await pdfParse(fs.readFileSync(rutaCompleta));
+    return datos.text;
+  }
+
+  if (ext === ".docx") {
+    let mammoth;
+    try { mammoth = require("mammoth"); }
+    catch(e) { throw new Error("Falta instalar la librería de Word: npm install mammoth"); }
+    const r = await mammoth.extractRawText({ path: rutaCompleta });
+    return r.value;
+  }
+
+  if (ext === ".epub") {
+    // Un EPUB es en realidad un ZIP con páginas HTML dentro — lo abrimos y quitamos las etiquetas
+    let AdmZip;
+    try { AdmZip = require("adm-zip"); }
+    catch(e) { throw new Error("Falta instalar la librería de EPUB: npm install adm-zip"); }
+    const zip = new AdmZip(rutaCompleta);
+    const paginas = zip.getEntries().filter(e => /\.x?html?$/i.test(e.entryName));
+    let texto = "";
+    for (const pagina of paginas) {
+      const html = zip.readAsText(pagina);
+      texto += html.replace(/<[^>]+>/g, " ").replace(/&nbsp;/g, " ").replace(/\s+/g, " ") + "\n\n";
+    }
+    return texto.trim();
+  }
+
+  throw new Error(`Formato no soportado: ${ext} (admitidos: .txt, .md, .pdf, .docx, .epub)`);
+}
+
+// Lista los libros que hay guardados en la biblioteca interna, con filtro opcional por nombre
+app.get("/libro/listar-archivos", (req, res) => {
+  try {
+    const filtro = (req.query.q || "").toLowerCase();
+    let archivos = fs.existsSync(DIR_ENTRADA) ? fs.readdirSync(DIR_ENTRADA) : [];
+    if (filtro) archivos = archivos.filter(a => a.toLowerCase().includes(filtro));
+    const detalle = archivos.map(nombre => {
+      let bytes = 0;
+      try { bytes = fs.statSync(path.join(DIR_ENTRADA, nombre)).size; } catch(e) {}
+      return { nombre, formato: path.extname(nombre).replace(".", "").toUpperCase(), bytes };
+    });
+    res.json({ ok: true, archivos: detalle });
+  } catch(e) { res.status(500).json({ error: e.message }); }
+});
+
+// Carga el texto de un libro concreto de la biblioteca interna, sin importar su formato
+app.get("/libro/leer-archivo", async (req, res) => {
+  const nombre = req.query.nombre || "";
+  if (!nombre) return res.status(400).json({ error: "Falta el nombre del archivo" });
+  // Seguridad: solo se puede leer DENTRO de libros_entrada, nunca salir de esa carpeta
+  const ruta = path.join(DIR_ENTRADA, path.basename(nombre));
+  if (!fs.existsSync(ruta)) return res.status(404).json({ error: "Ese archivo no está en la biblioteca interna" });
+  try {
+    const texto = (await extraerTextoDeArchivo(ruta)).trim();
+    res.json({ ok: true, nombre, texto, caracteres: texto.length });
+  } catch(e) { logger.error("/libro/leer-archivo: " + e.message); res.status(500).json({ error: e.message }); }
+});
+
 app.post("/resumir", async (req, res) => {
   const { texto = "", nivel = "medio" } = req.body || {};
   if (!texto.trim()) return res.status(400).json({ error: "Falta el texto a resumir" });

@@ -8,28 +8,35 @@
 <!-- Fuentes: Space Grotesk (títulos) + Inter (texto) -->
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-<link href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@500;600;700&family=Inter:wght@400;500;600&display=swap" rel="stylesheet">
+<link href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@500;600;700&family=Inter:wght@400;500;600&family=JetBrains+Mono:wght@400;500;700&display=swap" rel="stylesheet">
 
 <style>
 /* ═══════════════════════════════════════════════
    PALETA — "Atlántico premium"
    ═══════════════════════════════════════════════ */
 :root {
-  --oceano:        #0a1622;   /* fondo principal — Atlántico nocturno */
-  --superficie:    #0f2030;   /* menú lateral y tarjetas */
-  --superficie-alta:#16293b;  /* hover y elementos elevados */
-  --borde:         #1e3348;   /* líneas divisorias sutiles */
-  --oro:           #f0b429;   /* acento principal — marca Fundora */
-  --aqua:          #2dd4bf;   /* acento vivo — Caribe, acciones activas */
-  --texto:         #f4efe6;   /* texto principal (blanco cálido) */
-  --texto-suave:   #8ba0b5;   /* texto secundario (gris azulado) */
-  --usuario-burbuja:#173248;  /* fondo de tus mensajes */
+  --oceano:        #050508;   /* fondo principal — mismo negro profundo de PAS/AgenciaPublica */
+  --superficie:    #12121f;   /* menú lateral y tarjetas — tono de "AI Model Store" de PAS */
+  --superficie-alta:#191930;  /* hover y elementos elevados */
+  --borde:         rgba(255,255,255,0.08); /* líneas divisorias sutiles, estilo PAS */
+  --oro:           #f0b429;   /* acento principal — marca Fundora (se mantiene intacto) */
+  --aqua:          #4d9fff;   /* acento vivo — ahora el mismo azul de PAS, para fusionar los dos sitios */
+  --texto:         #f0f0f8;   /* texto principal — blanco frío de PAS */
+  --texto-suave:   #8888aa;   /* texto secundario — gris azulado de PAS */
+  --usuario-burbuja:#161628;  /* fondo de tus mensajes */
   --ok:            #34d399;   /* verde de "hecho" */
 }
 * { margin: 0; padding: 0; box-sizing: border-box; }
 body {
   font-family: 'Inter', system-ui, sans-serif;
   background: var(--oceano); color: var(--texto);
+  /* Textura de puntos + resplandor superior — misma firma visual de SectionFundoraAgency en PAS */
+  background-image:
+    linear-gradient(rgba(77,159,255,0.04) 1px, transparent 1px),
+    linear-gradient(90deg, rgba(77,159,255,0.04) 1px, transparent 1px),
+    radial-gradient(ellipse 900px 400px at 50% 0%, rgba(77,159,255,0.07) 0%, rgba(176,108,255,0.05) 40%, transparent 70%);
+  background-size: 48px 48px, 48px 48px, 100% 100%;
+  background-attachment: fixed;
   height: 100vh; overflow: hidden; display: flex;
 }
 /* Los iconos SVG heredan el color del texto de su contenedor */
@@ -266,7 +273,7 @@ body.modo-incubadora #vista-incubadora { display: flex; }
 .inc-item { background: var(--oceano); border: 1px solid var(--borde); border-radius: 10px; padding: 12px; display: flex; flex-direction: column; gap: 4px; }
 .inc-item .inc-cab { display: flex; justify-content: space-between; align-items: center; gap: 8px; }
 .inc-item .inc-nombre { color: var(--texto); font-weight: 600; font-size: 14px; }
-.inc-badge { font-size: 10px; padding: 2px 8px; border-radius: 20px; font-weight: 600; }
+.inc-badge { font-size: 10px; padding: 2px 8px; border-radius: 20px; font-weight: 700; font-family: 'JetBrains Mono', monospace; letter-spacing: 0.05em; text-transform: uppercase; }
 .inc-badge.apk { background: rgba(45,212,191,0.15); color: var(--aqua); }
 .inc-badge.web { background: rgba(240,180,41,0.15); color: var(--oro); }
 .inc-item .inc-desc { color: var(--texto-suave); font-size: 13px; }

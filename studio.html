@@ -594,6 +594,7 @@ body.modo-incubadora #vista-incubadora { display: flex; }
       <input id="inc-peso" placeholder="Peso en MB (solo APK)" type="number" style="display:none;background:var(--oceano);border:1px solid var(--borde);border-radius:10px;color:var(--texto);font-family:'Inter';font-size:14px;padding:9px 12px">
       <textarea id="inc-desc" rows="2" placeholder="Descripción corta (la que verá el público)"></textarea>
       <textarea id="inc-specs" rows="3" placeholder="Especificaciones técnicas (stack, características)"></textarea>
+      <input id="inc-logo" placeholder="URL del logo (de tu Stock, ej. /generados/xxx.jpg)" style="background:var(--oceano);border:1px solid var(--borde);border-radius:10px;color:var(--texto);font-family:'Inter';font-size:14px;padding:9px 12px">
       <button class="ed-btn" onclick="crearProyectoIncubadora()">Guardar proyecto</button>
     </div>
     <div class="rz-caja">
@@ -1150,6 +1151,7 @@ async function cargarProyectosIncubadora() {
     cont.innerHTML = d.proyectos.map(p => `
       <div class="inc-item">
         <div class="inc-cab">
+          ${p.logo_url ? `<img src="${p.logo_url.startsWith('http')?p.logo_url:API_BASE+p.logo_url}" style="width:32px;height:32px;border-radius:8px;object-fit:cover;margin-right:8px">` : ""}
           <span class="inc-nombre">${p.nombre}</span>
           <span class="inc-badge ${p.tipo}">${p.tipo === "apk" ? "APK" : "WEB"}</span>
         </div>
@@ -1171,11 +1173,12 @@ async function crearProyectoIncubadora() {
   const peso_mb = tipo === "apk" ? (parseFloat(document.getElementById("inc-peso").value) || null) : null;
   const descripcion = document.getElementById("inc-desc").value.trim();
   const especificaciones = document.getElementById("inc-specs").value.trim();
+  const logo_url = document.getElementById("inc-logo").value.trim() || null;
   const estado = document.getElementById("inc-estado").value;
   try {
     const r = await fetch(`${API_BASE}/incubadora/proyectos`, {
       method: "POST", headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ nombre, tipo, enlace, peso_mb, descripcion, especificaciones, estado })
+      body: JSON.stringify({ nombre, tipo, enlace, peso_mb, descripcion, especificaciones, estado, logo_url })
     });
     const d = await r.json();
     if (!d.ok) throw new Error(d.error || "error");
@@ -1184,6 +1187,7 @@ async function crearProyectoIncubadora() {
     document.getElementById("inc-peso").value = "";
     document.getElementById("inc-desc").value = "";
     document.getElementById("inc-specs").value = "";
+    document.getElementById("inc-logo").value = "";
     cargarProyectosIncubadora();
   } catch(e) { alert("No se pudo guardar: " + e.message); }
 }

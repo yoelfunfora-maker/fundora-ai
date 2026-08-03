@@ -1292,6 +1292,7 @@ REGLAS ABSOLUTAS DE USO DE HERRAMIENTAS:
       }
 
       pasos.push({ herramienta: nombre, argumentos: args, ok: resultado.ok });
+      logger.info(`⚙️ [${config.nombre}] ${nombre}(${JSON.stringify(args).slice(0, 120)}) → ${resultado.ok === false ? "falló" : "ok"}`);
 
       // Guardar artefactos multimedia para el frontend
       if (resultado.tipo && ["imagen","audio","video","pdf"].includes(resultado.tipo)) {

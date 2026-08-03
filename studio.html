@@ -132,6 +132,7 @@ svg { display: block; }
 }
 .dd-opcion:hover { background: var(--oceano); color: var(--texto); }
 .dd-opcion .op-icono { color: var(--aqua); display: flex; flex-shrink: 0; }
+.dd-opcion .op-rango { color: var(--oro); font-size: 11px; letter-spacing: 1px; flex-shrink: 0; }
 .dd-opcion .op-desc { font-size: 11px; color: var(--texto-suave); margin-left: auto; }
 
 #mensajes {
@@ -604,7 +605,6 @@ body.modo-incubadora #vista-incubadora { display: flex; }
   <!-- ═══ VISTA MONITOR · Centro de Control ═══ -->
   <div id="vista-monitor">
     <div class="latido" id="latido"></div>
-    <div class="rango-sistema" id="rango-sistema"></div>
     <div class="consola-cab">
       <span>Consola en vivo</span>
       <span class="consola-estado" id="consola-estado"><span class="punto-consola"></span><span id="consola-texto">conectando…</span></span>
@@ -707,14 +707,26 @@ function pintarIconosFijos() {
   elegirAgente("general"); // fija el icono/nombre del agente inicial
 }
 
-/* ─── Menú desplegable de agentes ─── */
-function pintarDropdown() {
-  document.getElementById("dd-lista").innerHTML = AGENTES_UI.map(a => `
+/* ─── Menú desplegable de agentes (con su rango individual) ─── */
+async function pintarDropdown() {
+  let rangos = {};
+  try {
+    const r = await fetch(`${API_BASE}/rango-agentes`);
+    const d = await r.json();
+    if (d.ok) (d.agentes || []).forEach(a => { rangos[a.id] = a; });
+  } catch(e) { /* si falla, se muestra la lista sin insignia — no rompe el selector */ }
+
+  document.getElementById("dd-lista").innerHTML = AGENTES_UI.map(a => {
+    const rg = rangos[a.id];
+    const insignia = rg ? `<span class="op-rango" title="${rg.rango} — ${rg.mensajes} mensajes">${"★".repeat(rg.estrellas)}</span>` : "";
+    return `
     <div class="dd-opcion" onclick="elegirAgente('${a.id}')">
       <span class="op-icono">${icono(a.icono, 18)}</span>
       <span>${a.nombre}</span>
+      ${insignia}
       ${a.desc ? `<span class="op-desc">${a.desc}</span>` : ''}
-    </div>`).join("");
+    </div>`;
+  }).join("");
 }
 function toggleDropdown(e) { if(e) e.stopPropagation(); document.getElementById("dd-lista").classList.toggle("abierta"); }
 function elegirAgente(id) {
@@ -1069,7 +1081,6 @@ function iniciarMonitor() {
   actualizarEstado();
   intervaloEstado = setInterval(actualizarEstado, 4000);
   conectarConsola();
-  cargarRangoSistema();
 }
 function detenerMonitor() {
   if (intervaloEstado) clearInterval(intervaloEstado);

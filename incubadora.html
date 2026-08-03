@@ -126,10 +126,17 @@
     function pintarTarjeta(p) {
       const esApk = p.tipo === "apk";
       const specsId = "specs-" + p.id;
+      const logoUrl = p.logo_url ? (p.logo_url.startsWith("http") ? p.logo_url : API_BASE + p.logo_url) : null;
+      const logo = logoUrl
+        ? `<img src="${logoUrl}" alt="${p.nombre}" style="width:44px;height:44px;border-radius:10px;object-fit:cover;flex-shrink:0">`
+        : `<div style="width:44px;height:44px;border-radius:10px;background:var(--oceano);flex-shrink:0"></div>`;
       return `
         <div class="tarjeta">
           <div class="fila-superior">
-            <div class="nombre">${p.nombre}</div>
+            <div style="display:flex;align-items:center;gap:10px">
+              ${logo}
+              <div class="nombre">${p.nombre}</div>
+            </div>
             <div class="badges">
               <span class="badge ${esApk ? 'apk' : 'web'}">${esApk ? "APK" : "Web"}</span>
             </div>

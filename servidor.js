@@ -2050,6 +2050,22 @@ app.patch("/incubadora/proyectos/:id", async (req, res) => {
   } catch(e) { logger.error("/incubadora/proyectos PATCH: " + e.message); res.status(500).json({ error: e.message }); }
 });
 
+// Subida INDIVIDUAL de logo para un proyecto concreto — el archivo sale del teléfono, no de una IA
+app.post("/incubadora/proyectos/:id/logo", upload.single("logo"), async (req, res) => {
+  if (!req.file) return res.status(400).json({ error: "Falta el archivo del logo" });
+  try {
+    const extPorMime = { "image/jpeg": "jpg", "image/png": "png", "image/webp": "webp" };
+    const ext = extPorMime[req.file.mimetype] || "jpg";
+    const nombre = `${Date.now()}_logo_${Math.random().toString(36).slice(2, 7)}.${ext}`;
+    fs.writeFileSync(path.join(DIR_GENERADOS, nombre), req.file.buffer);
+    const url = "/generados/" + nombre;
+    await fetch(`${SUPABASE_URL}/rest/v1/proyectos_incubadora?id=eq.${req.params.id}`, {
+      method: "PATCH", headers: SUPA(), body: JSON.stringify({ logo_url: url })
+    });
+    res.json({ ok: true, url });
+  } catch(e) { logger.error("/incubadora/proyectos/:id/logo: " + e.message); res.status(500).json({ error: e.message }); }
+});
+
 app.delete("/incubadora/proyectos/:id", async (req, res) => {
   try {
     await fetch(`${SUPABASE_URL}/rest/v1/proyectos_incubadora?id=eq.${req.params.id}`, { method: "DELETE", headers: SUPA() });

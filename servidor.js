@@ -66,6 +66,7 @@ const CF_ACCOUNT_ID = process.env.CF_ACCOUNT_ID || "";
 const CF_TOKEN = process.env.CF_TOKEN || "";
 const GOOGLE_TTS_API_KEY = process.env.GOOGLE_TTS_API_KEY || ""; // voz de Google, gratis hasta 1M/4M caracteres al mes
 const GEMINI_API_KEY = process.env.GEMINI_API_KEY || ""; // ojos del agente (Google AI Studio, gratis sin tarjeta)
+const TAVILY_API_KEY = process.env.TAVILY_API_KEY || ""; // investigación autónoma de cada agente (gratis, 1000 búsquedas/mes)
 const GROQ_KEY = process.env.GROQ_KEY || "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";
 const JWT_SECRET = process.env.JWT_SECRET || "fundora-ai-secreto-2026";
 const SAFE_ROOT = __dirname; // Antes usaba os.homedir()+"fundora-ai" (solo válido por coincidencia en Termux);
@@ -464,14 +465,14 @@ async function generarEmbedding(texto) {
 }
 
 // Indexa un contenido para que luego se pueda encontrar por significado. Aplica el filtro de calidad primero.
-async function indexarConocimiento({ contenido, origen, referencia = "" }) {
+async function indexarConocimiento({ contenido, origen, referencia = "", agente = null }) {
   if (!pasaFiltroCalidad(contenido)) return { ok: false, motivo: "no pasó el filtro de calidad" };
   try {
     const vector = await generarEmbedding(contenido);
     await fetch(`${SUPABASE_URL}/rest/v1/conocimiento_vectorial`, {
       method: "POST", headers: SUPA(),
       body: JSON.stringify({
-        contenido: contenido.slice(0, 3000), origen, referencia,
+        contenido: contenido.slice(0, 3000), origen, referencia, agente,
         bytes: Buffer.byteLength(contenido, "utf8"),
         embedding: JSON.stringify(vector)   // pgvector acepta el array como texto "[0.1,0.2,...]"
       })
@@ -479,6 +480,77 @@ async function indexarConocimiento({ contenido, origen, referencia = "" }) {
     return { ok: true };
   } catch(e) { logger.warn("No se pudo indexar: " + e.message); return { ok: false, motivo: e.message }; }
 }
+
+// ══════════════════════════════════════════════
+//  INVESTIGACIÓN AUTÓNOMA — cada agente busca información de su especialidad,
+//  por su cuenta y sin parar, aunque nadie le hable (idea del dossier de Yoel)
+// ══════════════════════════════════════════════
+
+// Tema de búsqueda propio de cada agente, según su área — el corazón de la propuesta del dossier
+const TEMAS_AGENTE = {
+  general:      "tendencias de inteligencia artificial y negocios digitales",
+  ceo:          "estrategia empresarial y tendencias de negocio",
+  programador:  "novedades en desarrollo de software y tecnología",
+  director:     "tendencias de diseño y producción audiovisual",
+  financiero:   "noticias de mercados financieros e inversión",
+  marketing:    "tendencias de marketing digital y redes sociales",
+  abogado:      "cambios legales y regulatorios para negocios",
+  psicologo:    "bienestar mental y manejo del estrés",
+  medico:       "noticias de salud y nutrición",
+  analista:     "estadísticas y resultados deportivos recientes",
+  ecommerce:    "tendencias de comercio electrónico",
+  turismo:      "noticias de turismo en el Caribe",
+  gastronomico: "tendencias gastronómicas y de restauración",
+  rrhh:         "tendencias de recursos humanos y cultura laboral",
+  educador:     "tendencias en educación y formación online",
+  inmobiliario: "mercado inmobiliario y tendencias de inversión",
+  agro:         "tecnología agrícola y tendencias del campo",
+  creativo:     "tendencias creativas y de contenido digital"
+};
+
+async function buscarWebTavily(query) {
+  if (!TAVILY_API_KEY) throw new Error("Falta configurar TAVILY_API_KEY");
+  const resp = await fetch("https://api.tavily.com/search", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ api_key: TAVILY_API_KEY, query, max_results: 4, search_depth: "basic" })
+  });
+  const data = await resp.json();
+  if (!data.results) throw new Error("Tavily no devolvió resultados: " + JSON.stringify(data.detail || data));
+  return data.results; // [{title, url, content}, ...]
+}
+
+// Un agente investiga por su cuenta: busca en la web, resume con SU propio criterio, y lo guarda para siempre
+async function investigarAgente(agenteId) {
+  const tema = TEMAS_AGENTE[agenteId];
+  const config = AGENTES[agenteId];
+  if (!tema || !config) return;
+  try {
+    const resultados = await buscarWebTavily(tema);
+    const crudo = resultados.map(r => `${r.title}: ${(r.content || "").slice(0, 500)}`).join("\n\n").slice(0, 4000);
+    const resumen = await llamarCF(config.modelo, [
+      { role: "system", content: `Eres ${config.nombre}, especialista en ${config.area}. Resume en un párrafo los hallazgos más relevantes de esta investigación, con tu criterio profesional — qué es útil y por qué.` },
+      { role: "user", content: crudo }
+    ], 500);
+    await indexarConocimiento({ contenido: resumen, origen: "investigacion_autonoma", referencia: tema, agente: agenteId });
+    logger.info(`🔎 ${config.nombre} investigó: "${tema}"`);
+  } catch(e) { logger.warn(`Investigación de ${agenteId} falló: ${e.message}`); }
+}
+
+// El reloj que nunca se detiene: cada 3 horas le toca el turno a un agente distinto,
+// así los 18 agentes se reparten la cuota gratis de Tavily sin agotarla nunca
+const AGENTES_INVESTIGABLES = Object.keys(TEMAS_AGENTE);
+let turnoInvestigacion = 0;
+const INTERVALO_INVESTIGACION_MS = 3 * 60 * 60 * 1000; // 3 horas
+
+function motorInvestigacionAutonoma() {
+  if (!TAVILY_API_KEY) return; // sin clave configurada, el motor no hace nada (no rompe el servidor)
+  const agenteId = AGENTES_INVESTIGABLES[turnoInvestigacion % AGENTES_INVESTIGABLES.length];
+  turnoInvestigacion++;
+  investigarAgente(agenteId);
+}
+setTimeout(motorInvestigacionAutonoma, 60 * 1000);           // primera investigación al minuto de arrancar
+setInterval(motorInvestigacionAutonoma, INTERVALO_INVESTIGACION_MS); // y luego cada 3 horas, para siempre
 
 // Busca por significado (no por palabra exacta) usando la función buscar_similar de Supabase
 async function buscarSemantico(consulta, limite = 5, origen = null) {
@@ -524,17 +596,27 @@ app.get("/rango-sistema", async (req, res) => {
 // Rango de CADA agente por separado, según cuánto ha trabajado (mensajes/bytes que ha procesado)
 app.get("/rango-agentes", async (req, res) => {
   try {
-    const r = await fetch(`${SUPABASE_URL}/rest/v1/rpc/bytes_por_agente`, { method: "POST", headers: SUPA(), body: "{}" });
-    const filas = await r.json();
+    const [rChat, rInvest] = await Promise.all([
+      fetch(`${SUPABASE_URL}/rest/v1/rpc/bytes_por_agente`, { method: "POST", headers: SUPA(), body: "{}" }),
+      fetch(`${SUPABASE_URL}/rest/v1/rpc/bytes_investigados_por_agente`, { method: "POST", headers: SUPA(), body: "{}" })
+    ]);
+    const filasChat = await rChat.json();
+    const filasInvest = await rInvest.json();
     const porAgente = {};
-    (Array.isArray(filas) ? filas : []).forEach(f => { porAgente[f.agente] = f; });
+    (Array.isArray(filasChat) ? filasChat : []).forEach(f => { porAgente[f.agente] = { bytes: Number(f.total_bytes) || 0, mensajes: Number(f.total_mensajes) || 0, hallazgos: 0 }; });
+    (Array.isArray(filasInvest) ? filasInvest : []).forEach(f => {
+      const previo = porAgente[f.agente] || { bytes: 0, mensajes: 0, hallazgos: 0 };
+      previo.bytes += Number(f.total_bytes) || 0;
+      previo.hallazgos = Number(f.total_hallazgos) || 0;
+      porAgente[f.agente] = previo;
+    });
 
     const agentes = Object.keys(AGENTES)
       .filter(id => !["supervisor", "corrector", "verificador", "rastreador"].includes(id)) // internos, no de cara al usuario
       .map(id => {
-        const fila = porAgente[id] || { total_bytes: 0, total_mensajes: 0 };
-        const r = calcularRangoSistema(Number(fila.total_bytes) || 0);
-        return { id, nombre: AGENTES[id].nombre, mensajes: Number(fila.total_mensajes) || 0, ...r };
+        const datos = porAgente[id] || { bytes: 0, mensajes: 0, hallazgos: 0 };
+        const r = calcularRangoSistema(datos.bytes);
+        return { id, nombre: AGENTES[id].nombre, mensajes: datos.mensajes, hallazgos: datos.hallazgos, ...r };
       });
     res.json({ ok: true, agentes });
   } catch(e) { logger.error("/rango-agentes: " + e.message); res.status(500).json({ error: e.message }); }

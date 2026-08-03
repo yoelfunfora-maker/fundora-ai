@@ -374,6 +374,13 @@ body.modo-incubadora #vista-incubadora { display: flex; }
 
 /* El latido: tarjetas con el pulso del sistema */
 .latido { display: grid; grid-template-columns: repeat(auto-fit, minmax(128px, 1fr)); gap: 12px; }
+.rango-sistema { background: var(--superficie); border: 1px solid var(--borde); border-radius: 12px; padding: 14px 16px; }
+.rango-sistema .rs-cab { display: flex; justify-content: space-between; align-items: center; margin-bottom: 8px; }
+.rango-sistema .rs-nombre { color: var(--texto); font-weight: 700; font-size: 14px; }
+.rango-sistema .rs-estrellas { color: var(--oro); font-size: 13px; letter-spacing: 2px; }
+.rango-sistema .rs-barra { height: 8px; background: var(--oceano); border-radius: 20px; overflow: hidden; margin-bottom: 6px; }
+.rango-sistema .rs-barra > i { display: block; height: 100%; background: linear-gradient(90deg, var(--oro), var(--aqua)); transition: width 0.5s; }
+.rango-sistema .rs-meta { color: var(--texto-suave); font-size: 11px; display: flex; justify-content: space-between; }
 .tarjeta-estado { display: flex; align-items: center; gap: 12px; background: var(--superficie); border: 1px solid var(--borde); border-radius: 12px; padding: 14px 16px; }
 .tarjeta-estado .ico { color: var(--texto-suave); flex-shrink: 0; }
 .tarjeta-estado .te-valor { font-family: 'Space Grotesk'; font-size: 18px; font-weight: 600; color: var(--texto); line-height: 1.1; }
@@ -597,6 +604,7 @@ body.modo-incubadora #vista-incubadora { display: flex; }
   <!-- ═══ VISTA MONITOR · Centro de Control ═══ -->
   <div id="vista-monitor">
     <div class="latido" id="latido"></div>
+    <div class="rango-sistema" id="rango-sistema"></div>
     <div class="consola-cab">
       <span>Consola en vivo</span>
       <span class="consola-estado" id="consola-estado"><span class="punto-consola"></span><span id="consola-texto">conectando…</span></span>
@@ -1061,10 +1069,28 @@ function iniciarMonitor() {
   actualizarEstado();
   intervaloEstado = setInterval(actualizarEstado, 4000);
   conectarConsola();
+  cargarRangoSistema();
 }
 function detenerMonitor() {
   if (intervaloEstado) clearInterval(intervaloEstado);
   if (fuenteLogs) { fuenteLogs.close(); fuenteLogs = null; }
+}
+async function cargarRangoSistema() {
+  const cont = document.getElementById("rango-sistema");
+  try {
+    const r = await fetch(`${API_BASE}/rango-sistema`);
+    const d = await r.json();
+    if (!d.ok) { cont.innerHTML = ""; return; }
+    const estrellas = "★".repeat(d.estrellas) + "☆".repeat(4 - d.estrellas);
+    const anchoBarra = Math.min(100, (d.porcentaje / 1000) * 100);
+    cont.innerHTML = `
+      <div class="rs-cab">
+        <span class="rs-nombre">${d.rango}</span>
+        <span class="rs-estrellas">${estrellas}</span>
+      </div>
+      <div class="rs-barra"><i style="width:${anchoBarra}%"></i></div>
+      <div class="rs-meta"><span>${d.porcentaje}% de progreso</span><span>${d.mb} MB de conocimiento indexado (${d.items_indexados} piezas)</span></div>`;
+  } catch(e) { cont.innerHTML = ""; }
 }
 
 /* ─── Stock · Biblioteca de creaciones ─── */

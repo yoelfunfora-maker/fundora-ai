@@ -1158,6 +1158,8 @@ async function cargarProyectosIncubadora() {
         <div class="inc-desc">${p.descripcion || ""}</div>
         <div class="inc-meta">${p.estado}${p.peso_mb ? " · " + p.peso_mb + " MB" : ""}</div>
         <div class="inc-acciones">
+          <button onclick="document.getElementById('logo-input-${p.id}').click()">Subir logo</button>
+          <input type="file" id="logo-input-${p.id}" accept="image/*" style="display:none" onchange="subirLogoProyecto(${p.id}, this.files[0])">
           <button onclick="window.open('${p.enlace}','_blank')">Abrir enlace</button>
           <button class="borrar" onclick="borrarProyectoIncubadora(${p.id})">Borrar</button>
         </div>
@@ -1190,6 +1192,19 @@ async function crearProyectoIncubadora() {
     document.getElementById("inc-logo").value = "";
     cargarProyectosIncubadora();
   } catch(e) { alert("No se pudo guardar: " + e.message); }
+}
+
+/* Sube un archivo real (foto/logo del teléfono) para UN proyecto en concreto */
+async function subirLogoProyecto(id, file) {
+  if (!file) return;
+  try {
+    const form = new FormData();
+    form.append("logo", file);
+    const r = await fetch(`${API_BASE}/incubadora/proyectos/${id}/logo`, { method: "POST", body: form });
+    const d = await r.json();
+    if (!d.ok) throw new Error(d.error || "error");
+    cargarProyectosIncubadora();
+  } catch(e) { alert("No se pudo subir el logo: " + e.message); }
 }
 
 async function borrarProyectoIncubadora(id) {

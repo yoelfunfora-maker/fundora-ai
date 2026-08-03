@@ -65,6 +65,7 @@ const SUPABASE_KEY = process.env.SUPABASE_KEY || process.env.SUPABASE_ANON_KEY |
 const CF_ACCOUNT_ID = process.env.CF_ACCOUNT_ID || "";
 const CF_TOKEN = process.env.CF_TOKEN || "";
 const GOOGLE_TTS_API_KEY = process.env.GOOGLE_TTS_API_KEY || ""; // voz de Google, gratis hasta 1M/4M caracteres al mes
+const GEMINI_API_KEY = process.env.GEMINI_API_KEY || ""; // ojos del agente (Google AI Studio, gratis sin tarjeta)
 const GROQ_KEY = process.env.GROQ_KEY || "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";
 const JWT_SECRET = process.env.JWT_SECRET || "fundora-ai-secreto-2026";
 const SAFE_ROOT = __dirname; // Antes usaba os.homedir()+"fundora-ai" (solo válido por coincidencia en Termux);
@@ -830,6 +831,41 @@ function archivarCreacion(art) {
   } catch(e) { logger.warn("No se pudo archivar la creación: " + e.message); return null; }
 }
 
+// ══════════════════════════════════════════════
+//  VISIÓN — le da "ojos" al agente con Gemini (gratis, Google AI Studio)
+// ══════════════════════════════════════════════
+async function analizarImagen(urlImagen, pregunta = "Describe esta imagen con detalle: qué se ve, colores, estilo, calidad, y qué mejorarías.") {
+  if (!GEMINI_API_KEY) throw new Error("Falta configurar GEMINI_API_KEY para poder ver imágenes");
+  let base64Img, mimeType = "image/jpeg";
+
+  if (urlImagen.startsWith("/generados/")) {
+    // Viene del Stock: la leemos directo del disco, sin rodeos por red
+    const rutaLocal = path.join(DIR_GENERADOS, path.basename(urlImagen));
+    if (!fs.existsSync(rutaLocal)) throw new Error("Esa imagen no está en el Stock");
+    base64Img = fs.readFileSync(rutaLocal).toString("base64");
+    const ext = path.extname(rutaLocal).toLowerCase();
+    mimeType = ext === ".png" ? "image/png" : ext === ".webp" ? "image/webp" : "image/jpeg";
+  } else if (urlImagen.startsWith("data:image/")) {
+    const m = urlImagen.match(/^data:(image\/[^;]+);base64,(.*)$/s);
+    if (!m) throw new Error("Formato de imagen no reconocido");
+    mimeType = m[1]; base64Img = m[2];
+  } else {
+    throw new Error("Solo puedo mirar imágenes del Stock (/generados/...) o en base64");
+  }
+
+  const resp = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key=${GEMINI_API_KEY}`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({
+      contents: [{ parts: [{ text: pregunta }, { inline_data: { mime_type: mimeType, data: base64Img } }] }]
+    })
+  });
+  const data = await resp.json();
+  const texto = data.candidates?.[0]?.content?.parts?.[0]?.text;
+  if (!texto) throw new Error("Gemini no devolvió análisis: " + JSON.stringify(data.error || data));
+  return texto;
+}
+
 const HERRAMIENTAS = {
   generar_imagen: {
     def: { type: "function", function: {
@@ -838,6 +874,20 @@ const HERRAMIENTAS = {
       parameters: { type: "object", properties: { prompt: { type: "string", description: "Descripción detallada de la imagen" } }, required: ["prompt"] }
     }},
     run: async (a) => { const r = await generarImagen(a.prompt); return { ok: true, tipo: "imagen", ...r }; }
+  },
+  mirar_imagen: {
+    def: { type: "function", function: {
+      name: "mirar_imagen",
+      description: "Analiza de verdad una imagen ya generada (o un fotograma de un video) para poder opinar sobre lo que se ve: colores, estilo, calidad, composición. Úsala después de generar_imagen o generar_video cuando el usuario pregunte tu opinión sobre el resultado, o quieras comentarlo con criterio real en vez de adivinar por el prompt.",
+      parameters: { type: "object", properties: {
+        url: { type: "string", description: "La URL /generados/... de la imagen (la que devolvió generar_imagen)" },
+        pregunta: { type: "string", description: "Qué quieres saber sobre la imagen (opcional, por defecto pide una descripción general)" }
+      }, required: ["url"] }
+    }},
+    run: async (a) => {
+      try { const analisis = await analizarImagen(a.url, a.pregunta); return { ok: true, tipo: "analisis", analisis }; }
+      catch(e) { return { ok: false, error: e.message }; }
+    }
   },
   generar_audio: {
     def: { type: "function", function: {
@@ -958,12 +1008,13 @@ async function ejecutarConHerramientas(mensaje, agenteId = "general", maxIteraci
   const historial = [
     { role: "system", content: caracter + `
 
-TIENES HERRAMIENTAS REALES que ejecutan acciones de verdad (generar imagen/audio/video/PDF, escribir_codigo, guardar_archivo, leer/listar archivos, ejecutar_comando).
+TIENES HERRAMIENTAS REALES que ejecutan acciones de verdad (generar imagen/audio/video/PDF, mirar_imagen para ver de verdad lo que generas, escribir_codigo, guardar_archivo, leer/listar archivos, ejecutar_comando).
 
 REGLAS ABSOLUTAS DE USO DE HERRAMIENTAS:
 1. NUNCA anuncies ni describas que vas a usar una herramienta. NO escribas frases como "ahora procederé a...", "utilizaremos la función...", "vamos a guardar...". En lugar de decirlo, HAZLO: emite la llamada a la herramienta directamente.
 2. Si la tarea necesita varios pasos (ej: escribir código Y guardarlo en un archivo), ejecuta las herramientas UNA TRAS OTRA. Después de escribir_codigo, si hay que guardarlo, llama a guardar_archivo INMEDIATAMENTE en tu siguiente turno.
 3. NO te detengas a mitad de una tarea. Sigue llamando herramientas hasta que TODO esté hecho.
+3b. YA PUEDES VER: si generaste una imagen o un video y el usuario pregunta tu opinión, cómo quedó, o pide que lo describas/critiques — usa mirar_imagen con la URL que te devolvió generar_imagen o generar_video ANTES de responder. No opines a ciegas basándote solo en el prompt que escribiste; mira de verdad y comenta lo que realmente ves.
 4. Cuando la tarea esté completa, responde con NATURALIDAD Y CALIDEZ, como una persona real conversando: comenta lo que hiciste, aporta una opinión o una sugerencia útil, y si tiene sentido pregunta el siguiente paso. JAMÁS respondas con frases secas de robot ("logo generado", "tarea completada", "vídeo generado para X") — eso suena a alguien dormido. Ponle vida, criterio y cercanía.
 5. FORMATO DE TU RESPUESTA FINAL: SIEMPRE texto plano, natural y directo, como hablaría una persona. NUNCA respondas en JSON ni con estructuras tipo {"accion":...} o {"texto":...} — eso son tripas internas que el usuario JAMÁS debe ver. IDIOMA: responde SIEMPRE en el MISMO idioma en que te escribe o te habla el usuario (español, inglés, o el que sea) — nunca cambies de idioma por tu cuenta.
 6. CONTEXTO: recuerdas los mensajes anteriores de esta conversación (están más arriba en el hilo). Si el usuario dice "la imagen", "eso", "explícamelo", "¿qué significa?", "el archivo anterior" y similares, se refiere a algo que YA ocurrió antes; NO lo trates como un pedido nuevo ni lo generes de cero — responde sobre lo que ya existe en el hilo.` },

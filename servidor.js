@@ -521,6 +521,25 @@ app.get("/rango-sistema", async (req, res) => {
   } catch(e) { res.status(500).json({ error: e.message }); }
 });
 
+// Rango de CADA agente por separado, según cuánto ha trabajado (mensajes/bytes que ha procesado)
+app.get("/rango-agentes", async (req, res) => {
+  try {
+    const r = await fetch(`${SUPABASE_URL}/rest/v1/rpc/bytes_por_agente`, { method: "POST", headers: SUPA(), body: "{}" });
+    const filas = await r.json();
+    const porAgente = {};
+    (Array.isArray(filas) ? filas : []).forEach(f => { porAgente[f.agente] = f; });
+
+    const agentes = Object.keys(AGENTES)
+      .filter(id => !["supervisor", "corrector", "verificador", "rastreador"].includes(id)) // internos, no de cara al usuario
+      .map(id => {
+        const fila = porAgente[id] || { total_bytes: 0, total_mensajes: 0 };
+        const r = calcularRangoSistema(Number(fila.total_bytes) || 0);
+        return { id, nombre: AGENTES[id].nombre, mensajes: Number(fila.total_mensajes) || 0, ...r };
+      });
+    res.json({ ok: true, agentes });
+  } catch(e) { logger.error("/rango-agentes: " + e.message); res.status(500).json({ error: e.message }); }
+});
+
 // Crear una conversación nueva → devuelve el registro (con su id)
 async function crearConversacion(usuario, titulo, agente) {
   const resp = await fetch(`${SUPABASE_URL}/rest/v1/conversaciones`, {

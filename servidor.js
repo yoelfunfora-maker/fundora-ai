@@ -67,6 +67,8 @@ const CF_TOKEN = process.env.CF_TOKEN || "";
 const GOOGLE_TTS_API_KEY = process.env.GOOGLE_TTS_API_KEY || ""; // voz de Google, gratis hasta 1M/4M caracteres al mes
 const GEMINI_API_KEY = process.env.GEMINI_API_KEY || ""; // ojos del agente (Google AI Studio, gratis sin tarjeta)
 const TAVILY_API_KEY = process.env.TAVILY_API_KEY || ""; // investigación autónoma de cada agente (gratis, 1000 búsquedas/mes)
+const GITHUB_TOKEN = process.env.GITHUB_TOKEN || ""; // para leer/proponer cambios en el repo de PAS
+const REPO_PAS = "yoelfunfora-maker/prime-atlantic-solutions-app";
 const GROQ_KEY = process.env.GROQ_KEY || "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";
 const JWT_SECRET = process.env.JWT_SECRET || "fundora-ai-secreto-2026";
 const SAFE_ROOT = __dirname; // Antes usaba os.homedir()+"fundora-ai" (solo válido por coincidencia en Termux);
@@ -150,6 +152,7 @@ PROTOCOLO:
 2. Da recomendaciones concretas con números cuando sea posible  
 3. Prioriza acciones de alto impacto en el corto plazo
 4. Reporta en formato ejecutivo: situación → análisis → acción recomendada
+5. TIENES UNA HERRAMIENTA ÚNICA — delegar_tarea: puedes mandarle trabajo directo a cualquier especialista de la agencia (financiero, marketing, programador, director, creativo, abogado, etc.) y traerte su resultado. Úsala como lo haría un CEO real: no intentes hacer tú el trabajo de cada área — delega a quien corresponda y luego reporta el resultado consolidado a Yoel.
 
 Respondes siempre en español. Tono: directo, ejecutivo, sin rodeos.`
   },
@@ -1053,7 +1056,61 @@ async function analizarImagen(urlImagen, pregunta = "Describe esta imagen con de
   return texto;
 }
 
+// ══════════════════════════════════════════════
+//  ACCESO A PAS — leer archivos reales del repo, y (solo tras aprobación de Yoel) aplicarlos
+// ══════════════════════════════════════════════
+async function leerArchivoPAS(ruta) {
+  if (!GITHUB_TOKEN) throw new Error("Falta configurar GITHUB_TOKEN");
+  const resp = await fetch(`https://api.github.com/repos/${REPO_PAS}/contents/${ruta}`, {
+    headers: { "Authorization": `token ${GITHUB_TOKEN}` }
+  });
+  const data = await resp.json();
+  if (!data.content) throw new Error("No se encontró el archivo en PAS: " + ruta);
+  return Buffer.from(data.content, "base64").toString("utf8");
+}
+
+async function escribirArchivoPAS(ruta, contenidoNuevo, mensaje) {
+  if (!GITHUB_TOKEN) throw new Error("Falta configurar GITHUB_TOKEN");
+  const urlBase = `https://api.github.com/repos/${REPO_PAS}/contents/${ruta}`;
+  const actual = await fetch(urlBase, { headers: { "Authorization": `token ${GITHUB_TOKEN}` } });
+  const dataActual = await actual.json();
+  const sha = dataActual.sha;
+  const resp = await fetch(urlBase, {
+    method: "PUT",
+    headers: { "Authorization": `token ${GITHUB_TOKEN}`, "Content-Type": "application/json" },
+    body: JSON.stringify({
+      message: mensaje || "Cambio aplicado desde Fundora Agency (aprobado por Yoel)",
+      content: Buffer.from(contenidoNuevo, "utf8").toString("base64"),
+      sha,
+      branch: "main",
+      committer: { name: "Yoel Fundora", email: "yoelfunfora@gmail.com" },
+      author: { name: "Yoel Fundora", email: "yoelfunfora@gmail.com" }
+    })
+  });
+  if (!resp.ok) throw new Error("GitHub rechazó el cambio: " + (await resp.text()).slice(0, 300));
+  return true;
+}
+
 const HERRAMIENTAS = {
+  delegar_tarea: {
+    soloCeo: true,   // solo el CEO la ve — evita cadenas de delegación sin fin entre agentes
+    def: { type: "function", function: {
+      name: "delegar_tarea",
+      description: "Delega una tarea a OTRO agente especializado de la agencia (financiero, marketing, programador, director, creativo, abogado, etc.) y espera su resultado. Úsala para coordinar el trabajo como CEO — pide a cada especialista lo suyo en vez de intentar hacerlo todo tú mismo.",
+      parameters: { type: "object", properties: {
+        agente: { type: "string", description: "ID del agente al que delegas (ej: financiero, marketing, programador, director, creativo, abogado, psicologo, medico, analista, ecommerce, turismo, gastronomico, rrhh, educador, inmobiliario, agro)" },
+        tarea: { type: "string", description: "Qué le pides a ese agente que haga, en una instrucción clara y completa" }
+      }, required: ["agente", "tarea"] }
+    }},
+    run: async (a) => {
+      if (!AGENTES[a.agente]) return { ok: false, error: "No existe el agente: " + a.agente };
+      if (a.agente === "ceo") return { ok: false, error: "El CEO no puede delegarse tareas a sí mismo" };
+      try {
+        const sub = await ejecutarConHerramientas(a.tarea, a.agente, 5, []);
+        return { ok: true, tipo: "delegacion", agente_id: a.agente, agente_nombre: AGENTES[a.agente].nombre, respuesta: sub.respuesta, artefactos_delegados: sub.artefactos };
+      } catch(e) { return { ok: false, error: "Falló la delegación: " + e.message }; }
+    }
+  },
   generar_imagen: {
     def: { type: "function", function: {
       name: "generar_imagen",
@@ -1168,6 +1225,29 @@ const HERRAMIENTAS = {
         });
       });
     }
+  },
+  proponer_cambio_pas: {
+    def: { type: "function", function: {
+      name: "proponer_cambio_pas",
+      description: "Propone un cambio a un archivo REAL del código de PAS (la web de Fundora). NUNCA se aplica solo — queda guardado como propuesta pendiente hasta que Yoel la revise y la apruebe manualmente. Usa esto cuando el usuario pida modificar algo de la web de PAS.",
+      parameters: { type: "object", properties: {
+        archivo: { type: "string", description: "Ruta exacta del archivo dentro del repo de PAS, ej: src/pages/Index.tsx" },
+        descripcion: { type: "string", description: "Qué cambia y por qué, en palabras simples para que Yoel lo entienda de un vistazo" },
+        contenido_nuevo: { type: "string", description: "El contenido COMPLETO del archivo con el cambio ya aplicado" }
+      }, required: ["archivo", "descripcion", "contenido_nuevo"] }
+    }},
+    run: async (a, agenteId) => {
+      try {
+        let contenidoAnterior = "";
+        try { contenidoAnterior = await leerArchivoPAS(a.archivo); } catch(e) { contenidoAnterior = "(no se pudo leer el original: " + e.message + ")"; }
+        const r = await fetch(`${SUPABASE_URL}/rest/v1/propuestas_pas`, {
+          method: "POST", headers: { ...SUPA(), "Prefer": "return=representation" },
+          body: JSON.stringify({ archivo: a.archivo, descripcion: a.descripcion, contenido_anterior: contenidoAnterior, contenido_nuevo: a.contenido_nuevo, agente: agenteId || "general" })
+        });
+        const data = await r.json();
+        return { ok: true, tipo: "propuesta_pas", id: data[0]?.id, mensaje: "Propuesta guardada — Yoel debe aprobarla en el Studio antes de que se aplique." };
+      } catch(e) { return { ok: false, error: e.message }; }
+    }
   }
 };
 
@@ -1222,7 +1302,7 @@ REGLAS ABSOLUTAS DE USO DE HERRAMIENTAS:
     } catch(e) { /* si falla, seguimos al camino normal con herramientas como respaldo */ }
   }
 
-  const toolsSchema = Object.values(HERRAMIENTAS).map(h => h.def);
+  const toolsSchema = Object.values(HERRAMIENTAS).filter(h => !h.soloCeo || agenteId === "ceo").map(h => h.def);
   const artefactos = [];   // imágenes, audios, videos, pdfs para el frontend
   const pasos = [];        // traza de lo que hizo el agente
   let respuestaFinal = "";
@@ -1285,7 +1365,7 @@ REGLAS ABSOLUTAS DE USO DE HERRAMIENTAS:
       const herramienta = HERRAMIENTAS[nombre];
       let resultado;
       if (herramienta) {
-        try { resultado = await herramienta.run(args); }
+        try { resultado = await herramienta.run(args, agenteId); }
         catch(e) { resultado = { ok: false, error: e.message }; }
       } else {
         resultado = { ok: false, error: "Herramienta desconocida: " + nombre };
@@ -1299,6 +1379,11 @@ REGLAS ABSOLUTAS DE USO DE HERRAMIENTAS:
         const url = archivarCreacion(resultado);   // lo escribe en disco para que quede en la Biblioteca
         if (url) resultado.url = url;               // URL persistente (sobrevive a recargas)
         artefactos.push(resultado);
+      }
+      // Si un sub-agente delegado generó imagen/audio/video/pdf, esos ya vienen archivados por él mismo —
+      // solo hay que sumarlos a la lista final para que se vean en la respuesta del CEO
+      if (resultado.tipo === "delegacion" && Array.isArray(resultado.artefactos_delegados)) {
+        artefactos.push(...resultado.artefactos_delegados);
       }
 
       // Devolver al modelo una versión ligera (sin base64 gigante que satura el contexto)
@@ -2030,6 +2115,42 @@ app.get("/libro/leer-archivo", async (req, res) => {
 //  INCUBADORA — catálogo de proyectos de Fundora (BetGroup Pro, Estudio de Libros, PAS, etc.)
 //  APK o web, con peso y especificaciones — se gestiona desde el Studio y se muestra en público
 // ══════════════════════════════════════════════
+// ══════════════════════════════════════════════
+//  PROPUESTAS PAS — el agente propone, Yoel aprueba, solo entonces se aplica
+// ══════════════════════════════════════════════
+app.get("/pas/propuestas", async (req, res) => {
+  try {
+    const r = await fetch(`${SUPABASE_URL}/rest/v1/propuestas_pas?select=*&order=creado_en.desc`, { headers: SUPA() });
+    res.json({ ok: true, propuestas: await r.json() });
+  } catch(e) { res.status(500).json({ error: e.message }); }
+});
+
+app.post("/pas/propuestas/:id/aprobar", async (req, res) => {
+  try {
+    const r = await fetch(`${SUPABASE_URL}/rest/v1/propuestas_pas?id=eq.${req.params.id}`, { headers: SUPA() });
+    const filas = await r.json();
+    const p = filas[0];
+    if (!p) return res.status(404).json({ error: "Propuesta no encontrada" });
+    if (p.estado !== "pendiente") return res.status(400).json({ error: "Esta propuesta ya fue resuelta" });
+
+    await escribirArchivoPAS(p.archivo, p.contenido_nuevo, `Fundora Agency: ${p.descripcion}`);
+    await fetch(`${SUPABASE_URL}/rest/v1/propuestas_pas?id=eq.${req.params.id}`, {
+      method: "PATCH", headers: SUPA(), body: JSON.stringify({ estado: "aprobado", resuelto_en: new Date().toISOString() })
+    });
+    logger.info(`✅ Propuesta PAS #${p.id} aprobada y aplicada: ${p.archivo}`);
+    res.json({ ok: true });
+  } catch(e) { logger.error("/pas/propuestas/:id/aprobar: " + e.message); res.status(500).json({ error: e.message }); }
+});
+
+app.post("/pas/propuestas/:id/rechazar", async (req, res) => {
+  try {
+    await fetch(`${SUPABASE_URL}/rest/v1/propuestas_pas?id=eq.${req.params.id}`, {
+      method: "PATCH", headers: SUPA(), body: JSON.stringify({ estado: "rechazado", resuelto_en: new Date().toISOString() })
+    });
+    res.json({ ok: true });
+  } catch(e) { res.status(500).json({ error: e.message }); }
+});
+
 app.get("/incubadora/proyectos", async (req, res) => {
   try {
     const r = await fetch(`${SUPABASE_URL}/rest/v1/proyectos_incubadora?select=*&order=orden.asc,creado_en.desc`, { headers: SUPA() });

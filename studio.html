@@ -718,7 +718,7 @@ async function pintarDropdown() {
 
   document.getElementById("dd-lista").innerHTML = AGENTES_UI.map(a => {
     const rg = rangos[a.id];
-    const insignia = rg ? `<span class="op-rango" title="${rg.rango} — ${rg.mensajes} mensajes">${"★".repeat(rg.estrellas)}</span>` : "";
+    const insignia = rg ? `<span class="op-rango" title="${rg.rango} — ${rg.mensajes} mensajes · ${rg.hallazgos} hallazgos propios">${"★".repeat(rg.estrellas)}</span>` : "";
     return `
     <div class="dd-opcion" onclick="elegirAgente('${a.id}')">
       <span class="op-icono">${icono(a.icono, 18)}</span>

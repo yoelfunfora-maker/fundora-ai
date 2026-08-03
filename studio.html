@@ -317,6 +317,18 @@ body.modo-incubadora #vista-incubadora { display: flex; }
 .inc-item .inc-acciones { display: flex; gap: 8px; margin-top: 4px; }
 .inc-item .inc-acciones button { background: none; border: 1px solid var(--borde); color: var(--texto-suave); font-size: 11px; padding: 4px 9px; border-radius: 8px; cursor: pointer; }
 .inc-item .inc-acciones button.borrar { color: #f87171; }
+.pas-item { background: var(--oceano); border: 1px solid var(--borde); border-radius: 10px; padding: 12px; margin-bottom: 10px; }
+.pas-item .pas-archivo { font-family: 'JetBrains Mono', monospace; font-size: 12px; color: var(--aqua); word-break: break-all; }
+.pas-item .pas-desc { color: var(--texto); font-size: 13px; margin: 6px 0; }
+.pas-item .pas-meta { color: var(--texto-suave); font-size: 11px; margin-bottom: 8px; }
+.pas-item .pas-acciones { display: flex; gap: 8px; }
+.pas-item .pas-acciones button { font-size: 12px; padding: 5px 12px; border-radius: 8px; cursor: pointer; border: 1px solid var(--borde); background: none; }
+.pas-item .pas-acciones .aprobar { color: var(--ok); border-color: var(--ok); }
+.pas-item .pas-acciones .rechazar { color: #f87171; border-color: #f87171; }
+.pas-item .pas-badge { font-size: 10px; padding: 2px 8px; border-radius: 20px; font-family: 'JetBrains Mono', monospace; text-transform: uppercase; }
+.pas-item .pas-badge.pendiente { background: rgba(240,180,41,0.15); color: var(--oro); }
+.pas-item .pas-badge.aprobado { background: rgba(52,211,153,0.15); color: var(--ok); }
+.pas-item .pas-badge.rechazado { background: rgba(248,113,113,0.15); color: #f87171; }
 .ed-form { background: var(--superficie); border: 1px solid var(--borde); border-radius: 14px; padding: 16px; display: flex; flex-direction: column; gap: 12px; }
 .ed-titulo { color: var(--texto); font-size: 16px; font-weight: 600; }
 #ed-idea, #ed-tono, #ed-genero, #ed-caps { background: var(--oceano); border: 1px solid var(--borde); border-radius: 10px; color: var(--texto); font-family: 'Inter'; font-size: 14px; padding: 10px 12px; width: 100%; }
@@ -600,6 +612,11 @@ body.modo-incubadora #vista-incubadora { display: flex; }
     <div class="rz-caja">
       <h3 class="ed-titulo">Proyectos en la Incubadora</h3>
       <div id="inc-lista"></div>
+    </div>
+    <div class="rz-caja">
+      <h3 class="ed-titulo">Propuestas de cambios a PAS</h3>
+      <div class="ed-estado" style="text-align:left;padding:2px 0 8px">El agente propone, tú decides — nada se aplica sin tu aprobación.</div>
+      <div id="pas-lista"></div>
     </div>
   </div>
 
@@ -1076,7 +1093,7 @@ function verVista(v) {
   document.getElementById("tv-incubadora").classList.toggle("activa", v === "incubadora");
   if (v === "monitor") iniciarMonitor(); else detenerMonitor();
   if (v === "biblioteca") cargarBiblioteca();
-  if (v === "incubadora") cargarProyectosIncubadora();
+  if (v === "incubadora") { cargarProyectosIncubadora(); cargarPropuestasPAS(); }
 }
 function iniciarMonitor() {
   actualizarEstado();
@@ -1141,6 +1158,41 @@ function ampliarUrl(url) {
 }
 
 /* ─── Incubadora: catálogo de proyectos de Fundora ─── */
+/* ─── Propuestas de cambios a PAS: proponer → tú apruebas → se aplica ─── */
+async function cargarPropuestasPAS() {
+  const cont = document.getElementById("pas-lista");
+  cont.innerHTML = '<div class="ed-estado">Cargando propuestas…</div>';
+  try {
+    const r = await fetch(`${API_BASE}/pas/propuestas`);
+    const d = await r.json();
+    if (!d.ok || !d.propuestas.length) { cont.innerHTML = '<div class="ed-estado">No hay propuestas por ahora.</div>'; return; }
+    cont.innerHTML = d.propuestas.map(p => `
+      <div class="pas-item">
+        <div class="pas-archivo">${p.archivo}</div>
+        <div class="pas-desc">${p.descripcion}</div>
+        <div class="pas-meta">
+          <span class="pas-badge ${p.estado}">${p.estado}</span>
+          · propuesto por ${p.agente || "agente"} · ${new Date(p.creado_en).toLocaleString("es")}
+        </div>
+        ${p.estado === "pendiente" ? `
+          <div class="pas-acciones">
+            <button class="aprobar" onclick="resolverPropuestaPAS(${p.id},'aprobar')">Aprobar y aplicar</button>
+            <button class="rechazar" onclick="resolverPropuestaPAS(${p.id},'rechazar')">Rechazar</button>
+          </div>` : ""}
+      </div>`).join("");
+  } catch(e) { cont.innerHTML = '<div class="ed-estado">No se pudieron cargar las propuestas.</div>'; }
+}
+
+async function resolverPropuestaPAS(id, accion) {
+  if (accion === "aprobar" && !confirm("¿Aplicar este cambio directo al repositorio real de PAS?")) return;
+  try {
+    const r = await fetch(`${API_BASE}/pas/propuestas/${id}/${accion}`, { method: "POST" });
+    const d = await r.json();
+    if (!d.ok) throw new Error(d.error || "error");
+    cargarPropuestasPAS();
+  } catch(e) { alert("No se pudo " + accion + ": " + e.message); }
+}
+
 async function cargarProyectosIncubadora() {
   const cont = document.getElementById("inc-lista");
   cont.innerHTML = '<div class="ed-estado">Cargando proyectos…</div>';

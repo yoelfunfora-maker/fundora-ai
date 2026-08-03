@@ -1204,7 +1204,8 @@ REGLAS ABSOLUTAS DE USO DE HERRAMIENTAS:
 3b. YA PUEDES VER: si generaste una imagen o un video y el usuario pregunta tu opinión, cómo quedó, o pide que lo describas/critiques — usa mirar_imagen con la URL que te devolvió generar_imagen o generar_video ANTES de responder. No opines a ciegas basándote solo en el prompt que escribiste; mira de verdad y comenta lo que realmente ves.
 4. Cuando la tarea esté completa, responde con NATURALIDAD Y CALIDEZ, como una persona real conversando: comenta lo que hiciste, aporta una opinión o una sugerencia útil, y si tiene sentido pregunta el siguiente paso. JAMÁS respondas con frases secas de robot ("logo generado", "tarea completada", "vídeo generado para X") — eso suena a alguien dormido. Ponle vida, criterio y cercanía.
 5. FORMATO DE TU RESPUESTA FINAL: SIEMPRE texto plano, natural y directo, como hablaría una persona. NUNCA respondas en JSON ni con estructuras tipo {"accion":...} o {"texto":...} — eso son tripas internas que el usuario JAMÁS debe ver. IDIOMA: responde SIEMPRE en el MISMO idioma en que te escribe o te habla el usuario (español, inglés, o el que sea) — nunca cambies de idioma por tu cuenta.
-6. CONTEXTO: recuerdas los mensajes anteriores de esta conversación (están más arriba en el hilo). Si el usuario dice "la imagen", "eso", "explícamelo", "¿qué significa?", "el archivo anterior" y similares, se refiere a algo que YA ocurrió antes; NO lo trates como un pedido nuevo ni lo generes de cero — responde sobre lo que ya existe en el hilo.` },
+6. CONTEXTO: recuerdas los mensajes anteriores de esta conversación (están más arriba en el hilo). Si el usuario dice "la imagen", "eso", "explícamelo", "¿qué significa?", "el archivo anterior" y similares, se refiere a algo que YA ocurrió antes; NO lo trates como un pedido nuevo ni lo generes de cero — responde sobre lo que ya existe en el hilo.
+7. LÍMITE REAL DE escribir_codigo: puedes escribir y guardar código fuente (JS, Python, HTML, lo que sea) como TEXTO. NO puedes compilar, empaquetar ni instalar nada — no puedes producir una APK de Android real, ni un ejecutable, ni una app instalable de la nada. Si te piden "crea una APK" o algo que requiera compilar, sé honesto de inmediato: explica que puedes escribir el código fuente de la app, pero que compilarla en una APK real requiere herramientas fuera de tu alcance (Android Studio o un servicio de build). No sigas escribiendo archivos sin fin tratando de cumplir algo que no puedes — dilo y ofrece la parte que sí puedes hacer.` },
     ...historialPrevio,
     { role: "user", content: mensaje }
   ];
@@ -1307,7 +1308,15 @@ REGLAS ABSOLUTAS DE USO DE HERRAMIENTAS:
     }
   }
 
-  if (!respuestaFinal) respuestaFinal = "Tarea procesada (se alcanzó el límite de pasos).";
+  // Si se agotaron los pasos SIN una respuesta final, nunca devolvemos el mensaje genérico
+  // mudo de antes — forzamos UNA última llamada, sin herramientas, para que resuma con
+  // palabras lo que sí logró hacer. Así el usuario siempre recibe algo coherente, no un eco vacío.
+  if (!respuestaFinal) {
+    try {
+      historial.push({ role: "user", content: "Se te acabaron los pasos disponibles antes de terminar del todo. Resume en un mensaje breve, claro y natural qué lograste hacer hasta ahora, y si la tarea era muy grande para completarla de una vez, dilo con honestidad y sugiere cómo seguir por partes." });
+      respuestaFinal = await llamarCF(config.modelo, historial, 400);
+    } catch(e) { respuestaFinal = "Llegué hasta donde pude con esta tarea — parece que era más grande de lo que alcanzo a resolver en un solo intento. ¿Seguimos por partes?"; }
+  }
   if (typeof respuestaFinal !== "string") respuestaFinal = JSON.stringify(respuestaFinal);
   respuestaFinal = limpiarRespuesta(respuestaFinal);
   return { respuesta: respuestaFinal, pasos, artefactos };

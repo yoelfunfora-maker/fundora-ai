@@ -88,6 +88,8 @@ const MODELOS = {
   // ── AUDIO ──
   audio_tts:   "@cf/myshell-ai/melotts",                            // Texto → Voz
   audio_stt:   "@cf/openai/whisper-large-v3-turbo",                 // Voz → Texto
+  // ── SIGNIFICADO (búsqueda semántica) ──
+  embeddings:  "@cf/baai/bge-base-en-v1.5",                         // texto → vector de 768 dimensiones
 };
 
 const GROQ_MODELS = {
@@ -434,6 +436,90 @@ async function registrarHistorial({ usuario = "anon", tipo, titulo = "", autor =
     });
   } catch(e) { logger.warn("No se pudo registrar en el historial: " + e.message); }
 }
+
+// ══════════════════════════════════════════════
+//  BÚSQUEDA SEMÁNTICA — búsqueda por SIGNIFICADO, no por texto exacto (gratis, Cloudflare)
+// ══════════════════════════════════════════════
+
+// Filtro de calidad (inspirado en el protocolo del dossier de Yoel): cero tolerancia a basura
+function pasaFiltroCalidad(texto) {
+  const t = (texto || "").trim();
+  if (t.length < 30) return false;                          // demasiado corto para tener significado real
+  const alfanumerico = (t.match(/[a-zA-Záéíóúñ0-9]/g) || []).length;
+  if (alfanumerico / t.length < 0.4) return false;           // mayormente símbolos/basura, no texto real
+  return true;
+}
+
+async function generarEmbedding(texto) {
+  const url = `https://api.cloudflare.com/client/v4/accounts/${CF_ACCOUNT_ID}/ai/run/${MODELOS.embeddings}`;
+  const resp = await fetch(url, {
+    method: "POST",
+    headers: { "Authorization": `Bearer ${CF_TOKEN}`, "Content-Type": "application/json" },
+    body: JSON.stringify({ text: [texto.slice(0, 3000)] })   // el modelo tiene un tope de tokens por llamada
+  });
+  const data = await resp.json();
+  const vector = data.result?.data?.[0];
+  if (!vector) throw new Error("No se pudo generar el embedding: " + JSON.stringify(data.errors || data));
+  return vector;
+}
+
+// Indexa un contenido para que luego se pueda encontrar por significado. Aplica el filtro de calidad primero.
+async function indexarConocimiento({ contenido, origen, referencia = "" }) {
+  if (!pasaFiltroCalidad(contenido)) return { ok: false, motivo: "no pasó el filtro de calidad" };
+  try {
+    const vector = await generarEmbedding(contenido);
+    await fetch(`${SUPABASE_URL}/rest/v1/conocimiento_vectorial`, {
+      method: "POST", headers: SUPA(),
+      body: JSON.stringify({
+        contenido: contenido.slice(0, 3000), origen, referencia,
+        bytes: Buffer.byteLength(contenido, "utf8"),
+        embedding: JSON.stringify(vector)   // pgvector acepta el array como texto "[0.1,0.2,...]"
+      })
+    });
+    return { ok: true };
+  } catch(e) { logger.warn("No se pudo indexar: " + e.message); return { ok: false, motivo: e.message }; }
+}
+
+// Busca por significado (no por palabra exacta) usando la función buscar_similar de Supabase
+async function buscarSemantico(consulta, limite = 5, origen = null) {
+  const vectorConsulta = await generarEmbedding(consulta);
+  const resp = await fetch(`${SUPABASE_URL}/rest/v1/rpc/buscar_similar`, {
+    method: "POST", headers: SUPA(),
+    body: JSON.stringify({ query_embedding: JSON.stringify(vectorConsulta), limite, filtro_origen: origen })
+  });
+  return await resp.json();
+}
+
+// Rango militar del sistema, según el volumen total de conocimiento indexado (idea del dossier de Yoel)
+function calcularRangoSistema(totalBytes) {
+  const kb = totalBytes / 1024;
+  let rango, minKB, maxKB, minPct, maxPct, estrellas;
+  if (kb <= 500)        { rango = "Recluta / Soldado Raso"; minKB = 0;     maxKB = 500;   minPct = 0;   maxPct = 100;  estrellas = 1; }
+  else if (kb <= 2048)  { rango = "Cabo / Sargento";        minKB = 501;   maxKB = 2048;  minPct = 101; maxPct = 300;  estrellas = 2; }
+  else if (kb <= 10240) { rango = "Oficial / Teniente";     minKB = 2100;  maxKB = 10240; minPct = 301; maxPct = 600;  estrellas = 3; }
+  else                  { rango = "Comandante / General";   minKB = 10100; maxKB = Math.max(kb, 10100) * 1.4; minPct = 601; maxPct = 1000; estrellas = 4; }
+  const progreso = Math.min(1, Math.max(0, (kb - minKB) / ((maxKB - minKB) || 1)));
+  const porcentaje = Math.round(minPct + progreso * (maxPct - minPct));
+  return { rango, estrellas, porcentaje: Math.min(porcentaje, 1000), kb: Math.round(kb), mb: (kb / 1024).toFixed(2) };
+}
+
+app.post("/buscar-semantico", async (req, res) => {
+  const { q, limite = 5, origen = null } = req.body || {};
+  if (!q) return res.status(400).json({ error: "Falta la consulta" });
+  try {
+    const resultados = await buscarSemantico(q, limite, origen);
+    res.json({ ok: true, resultados });
+  } catch(e) { logger.error("/buscar-semantico: " + e.message); res.status(500).json({ error: e.message }); }
+});
+
+app.get("/rango-sistema", async (req, res) => {
+  try {
+    const r = await fetch(`${SUPABASE_URL}/rest/v1/conocimiento_vectorial?select=bytes`, { headers: SUPA() });
+    const filas = await r.json();
+    const totalBytes = (filas || []).reduce((sum, f) => sum + (f.bytes || 0), 0);
+    res.json({ ok: true, ...calcularRangoSistema(totalBytes), items_indexados: (filas || []).length });
+  } catch(e) { res.status(500).json({ error: e.message }); }
+});
 
 // Crear una conversación nueva → devuelve el registro (con su id)
 async function crearConversacion(usuario, titulo, agente) {
@@ -1742,6 +1828,7 @@ app.get("/libro/importar/:id", async (req, res) => {
     const titulo = meta.title, autor = (meta.authors && meta.authors[0] && meta.authors[0].name) || "";
     const tema = (meta.subjects && meta.subjects[0]) || (meta.bookshelves && meta.bookshelves[0]) || "";
     registrarHistorial({ tipo: "lectura", titulo, autor, tema, fuente: "gutenberg", gutenberg_id: meta.id });
+    indexarConocimiento({ contenido: texto, origen: "gutenberg", referencia: titulo }); // no bloquea la respuesta
     res.json({ ok: true, titulo, autor, texto, caracteres: texto.length });
   } catch(e) { logger.error("/libro/importar: " + e.message); res.status(500).json({ error: e.message }); }
 });
@@ -1820,6 +1907,7 @@ app.get("/libro/leer-archivo", async (req, res) => {
   try {
     const texto = (await extraerTextoDeArchivo(ruta)).trim();
     registrarHistorial({ tipo: "lectura", titulo: nombre, fuente: "interna" });
+    indexarConocimiento({ contenido: texto, origen: "biblioteca_interna", referencia: nombre }); // no bloquea la respuesta
     res.json({ ok: true, nombre, texto, caracteres: texto.length });
   } catch(e) { logger.error("/libro/leer-archivo: " + e.message); res.status(500).json({ error: e.message }); }
 });

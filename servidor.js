@@ -2029,12 +2029,12 @@ app.get("/incubadora/proyectos", async (req, res) => {
 });
 
 app.post("/incubadora/proyectos", async (req, res) => {
-  const { nombre, tipo, enlace, peso_mb = null, descripcion = "", especificaciones = "", estado = "en desarrollo", orden = 0 } = req.body || {};
+  const { nombre, tipo, enlace, peso_mb = null, descripcion = "", especificaciones = "", estado = "en desarrollo", orden = 0, logo_url = null } = req.body || {};
   if (!nombre || !tipo || !enlace) return res.status(400).json({ error: "Faltan nombre, tipo o enlace" });
   try {
     const r = await fetch(`${SUPABASE_URL}/rest/v1/proyectos_incubadora`, {
       method: "POST", headers: { ...SUPA(), "Prefer": "return=representation" },
-      body: JSON.stringify({ nombre, tipo, enlace, peso_mb, descripcion, especificaciones, estado, orden })
+      body: JSON.stringify({ nombre, tipo, enlace, peso_mb, descripcion, especificaciones, estado, orden, logo_url })
     });
     const data = await r.json();
     res.json({ ok: true, proyecto: data[0] || data });

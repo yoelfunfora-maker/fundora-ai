@@ -148,7 +148,9 @@
             <button class="specs-toggle" onclick="document.getElementById('${specsId}').classList.toggle('abierto')">Ver especificaciones</button>
             <div class="specs" id="${specsId}">${p.especificaciones}</div>
           ` : ""}
-          <a class="cta ${esApk ? '' : 'web'}" href="${p.enlace}" target="_blank" rel="noopener">${esApk ? "Descargar APK" : "Abrir la web"}</a>
+          ${p.enlace && p.enlace !== "#"
+            ? `<a class="cta ${esApk ? '' : 'web'}" href="${p.enlace}" target="_blank" rel="noopener">${esApk ? "Descargar APK" : "Abrir la web"}</a>`
+            : `<span class="cta" style="opacity:0.5;cursor:default;pointer-events:none">Próximamente</span>`}
         </div>`;
     }
 

@@ -156,6 +156,14 @@ svg { display: block; }
   line-height: 1.55; white-space: pre-wrap; word-break: break-word; box-shadow: 0 1px 1px rgba(0,0,0,0.3);
 }
 .mensaje.ia .burbuja { background: var(--wa-burbuja-in); color: var(--texto); border-top-left-radius: 0; }
+.proceso-vivo {
+  margin-top: 6px; max-width: 480px; max-height: 160px; overflow-y: auto;
+  background: #050508; border: 1px solid var(--borde); border-radius: 10px;
+  padding: 8px 10px; font-family: 'JetBrains Mono', monospace; font-size: 11px; line-height: 1.6;
+}
+.proceso-vivo .pv-linea { color: #8888aa; white-space: pre-wrap; word-break: break-word; }
+.proceso-vivo .pv-linea.pv-error { color: #f87171; }
+.proceso-vivo .pv-linea.pv-warn { color: var(--oro); }
 .mensaje.usuario .burbuja { background: var(--wa-burbuja-out); color: var(--texto); border-top-right-radius: 0; }
 /* Colita de la burbuja, dibujada con un triángulo propio (no la ilustración de WhatsApp) */
 .mensaje.ia .burbuja::before {
@@ -935,6 +943,7 @@ async function enviar() {
       body: JSON.stringify({ mensaje: texto, agente: agenteActivo, conversacion_id: conversacionActual, usuario: USUARIO })
     });
     const data = await resp.json();
+    cerrarProcesoVivo();
     indicador.remove();
     if (data.conversacion_id) conversacionActual = data.conversacion_id;
     // Doble check azul: el agente ya vio y respondió tu mensaje
@@ -946,6 +955,7 @@ async function enviar() {
     origenVoz = false;   // se resetea siempre: el próximo mensaje escrito no debe hablar
     cargarConversaciones();
   } catch (e) {
+    cerrarProcesoVivo();
     indicador.remove();
     agregarMensaje("ia", "Esta es una vista previa del diseño. Cuando el Studio corra en tu servidor, aquí verás la respuesta real del agente con su rastro de trabajo.", RASTRO_DEMO, null);
     origenVoz = false;
@@ -980,13 +990,42 @@ function agregarMensaje(tipo, texto, pasos, artefactos) {
   cont.scrollTop = cont.scrollHeight;
   return div;
 }
+let fuenteProcesoVivo = null;
+
 function agregarPensando() {
   const cont = document.getElementById("mensajes");
   const div = document.createElement("div");
   div.className = "mensaje ia";
-  div.innerHTML = `<div class="avatar ia">F</div><div class="burbuja"><div class="pensando"><span></span><span></span><span></span></div></div>`;
+  div.innerHTML = `<div class="avatar ia">F</div><div><div class="burbuja"><div class="pensando"><span></span><span></span><span></span></div></div><div class="proceso-vivo" id="proceso-vivo"></div></div>`;
   cont.appendChild(div); cont.scrollTop = cont.scrollHeight;
+  conectarProcesoVivo();
   return div;
+}
+
+/* Conecta a la misma consola en vivo del Monitor, pero mostrando solo lo que pasa
+   DESDE AHORA (se ignora el historial viejo) -- así el chat narra su propio proceso real. */
+function conectarProcesoVivo() {
+  cerrarProcesoVivo();
+  try {
+    fuenteProcesoVivo = new EventSource(`${API_BASE}/monitor/logs`);
+    fuenteProcesoVivo.onmessage = (ev) => {
+      const box = document.getElementById("proceso-vivo");
+      if (!box) return; // el mensaje ya se resolvió y se quitó de pantalla
+      try {
+        const d = JSON.parse(ev.data);
+        if (d.tipo === "historial") return; // no mezclar actividad de antes de este mensaje
+        const linea = document.createElement("div");
+        linea.className = "pv-linea pv-" + d.nivel;
+        linea.textContent = d.msg;
+        box.appendChild(linea);
+        box.scrollTop = box.scrollHeight;
+        document.getElementById("mensajes").scrollTop = document.getElementById("mensajes").scrollHeight;
+      } catch(e) {}
+    };
+  } catch(e) {}
+}
+function cerrarProcesoVivo() {
+  if (fuenteProcesoVivo) { fuenteProcesoVivo.close(); fuenteProcesoVivo = null; }
 }
 /* Registro de piezas generadas, para descargar/ampliar sin meter el base64 en el HTML */
 const MEDIA = {};

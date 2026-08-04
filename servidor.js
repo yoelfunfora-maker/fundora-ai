@@ -1091,6 +1091,19 @@ async function escribirArchivoPAS(ruta, contenidoNuevo, mensaje) {
   return true;
 }
 
+// Nombre legible de cada herramienta, para narrar el proceso en vivo (Monitor + chat)
+function nombreHerramienta(h) {
+  const m = {
+    escribir_codigo: "escribir código", guardar_archivo: "guardar el archivo",
+    generar_imagen: "generar una imagen", mirar_imagen: "mirar la imagen",
+    generar_audio: "generar audio", generar_video: "generar video",
+    generar_pdf: "crear un PDF", ejecutar_comando: "ejecutar un comando",
+    leer_archivo: "leer un archivo", listar_archivos: "listar archivos",
+    delegar_tarea: "delegarle la tarea a otro agente", proponer_cambio_pas: "proponer un cambio a PAS"
+  };
+  return m[h] || h;
+}
+
 const HERRAMIENTAS = {
   delegar_tarea: {
     soloCeo: true,   // solo el CEO la ve — evita cadenas de delegación sin fin entre agentes
@@ -1215,12 +1228,17 @@ const HERRAMIENTAS = {
     }},
     run: async (a) => {
       const cmd = a.comando || "";
+      logger.info(`💻 $ ${cmd}`);
       // Protecciones de seguridad
       if (/rm\s+-rf\s+\/|sudo|chmod\s+777|mkfs|:\(\)\{|dd\s+if=/i.test(cmd)) {
+        logger.warn(`🚫 Comando bloqueado por seguridad: ${cmd}`);
         return { ok: false, error: "Comando bloqueado por seguridad" };
       }
       return await new Promise(resolve => {
         exec(cmd, { cwd: SAFE_ROOT, timeout: 20000, maxBuffer: 1024*500 }, (error, stdout, stderr) => {
+          if (stdout) logger.info(`   ↳ ${stdout.trim().slice(0, 300)}`);
+          if (stderr) logger.warn(`   ↳ ${stderr.trim().slice(0, 300)}`);
+          if (error) logger.error(`   ↳ falló: ${error.message.slice(0, 200)}`);
           resolve({ ok: !error, stdout: (stdout||"").slice(0,3000), stderr: (stderr||"").slice(0,1000), error: error?.message || null });
         });
       });
@@ -1364,6 +1382,7 @@ REGLAS ABSOLUTAS DE USO DE HERRAMIENTAS:
 
       const herramienta = HERRAMIENTAS[nombre];
       let resultado;
+      logger.info(`🎯 [${config.nombre}] va a ${nombreHerramienta(nombre).toLowerCase()}…`);
       if (herramienta) {
         try { resultado = await herramienta.run(args, agenteId); }
         catch(e) { resultado = { ok: false, error: e.message }; }

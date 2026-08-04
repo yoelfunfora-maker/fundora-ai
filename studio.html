@@ -306,6 +306,10 @@ body.modo-incubadora #mensajes,
 body.modo-incubadora .zona-input,
 body.modo-incubadora #dropdown-agente { display: none; }
 body.modo-incubadora #vista-incubadora { display: flex; }
+body.modo-agentes #mensajes,
+body.modo-agentes .zona-input,
+body.modo-agentes #dropdown-agente { display: none; }
+body.modo-agentes #vista-agentes { display: block; }
 .inc-item { background: var(--oceano); border: 1px solid var(--borde); border-radius: 10px; padding: 12px; display: flex; flex-direction: column; gap: 4px; }
 .inc-item .inc-cab { display: flex; justify-content: space-between; align-items: center; gap: 8px; }
 .inc-item .inc-nombre { color: var(--texto); font-weight: 600; font-size: 14px; }
@@ -329,6 +333,22 @@ body.modo-incubadora #vista-incubadora { display: flex; }
 .pas-item .pas-badge.pendiente { background: rgba(240,180,41,0.15); color: var(--oro); }
 .pas-item .pas-badge.aprobado { background: rgba(52,211,153,0.15); color: var(--ok); }
 .pas-item .pas-badge.rechazado { background: rgba(248,113,113,0.15); color: #f87171; }
+
+#vista-agentes { display: none; flex: 1; overflow-y: auto; padding: 28px 24px 60px; }
+.ag-cabecera { max-width: 720px; margin: 0 auto 32px; text-align: center; }
+.ag-cabecera h2 { font-family: 'Space Grotesk'; font-size: 24px; color: var(--texto); margin-bottom: 8px; }
+.ag-cabecera p { color: var(--texto-suave); font-size: 14px; line-height: 1.6; }
+.ag-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(260px, 1fr)); gap: 16px; max-width: 1100px; margin: 0 auto; }
+.ag-card { background: var(--superficie); border: 1px solid var(--borde); border-radius: 14px; padding: 18px; transition: border-color 0.2s; }
+.ag-card:hover { border-color: rgba(255,255,255,0.16); }
+.ag-card .ag-nombre { font-family: 'Space Grotesk'; font-weight: 700; color: var(--texto); font-size: 15px; }
+.ag-card .ag-rango { color: var(--oro); font-size: 12px; margin-top: 2px; }
+.ag-card .ag-estrellas { color: var(--oro); font-size: 13px; letter-spacing: 2px; margin: 8px 0 10px; }
+.ag-card .ag-barra { height: 10px; background: var(--oceano); border-radius: 20px; overflow: hidden; margin-bottom: 8px; }
+.ag-card .ag-barra > i { display: block; height: 100%; background: linear-gradient(90deg, var(--oro), var(--aqua)); transition: width 0.6s ease; }
+.ag-card .ag-pct { text-align: right; font-size: 11px; color: var(--texto-suave); margin-bottom: 10px; }
+.ag-card .ag-stats { display: flex; justify-content: space-between; font-size: 11px; color: var(--texto-suave); border-top: 1px solid var(--borde); padding-top: 10px; }
+.ag-card .ag-stats b { color: var(--texto); font-weight: 600; }
 .ed-form { background: var(--superficie); border: 1px solid var(--borde); border-radius: 14px; padding: 16px; display: flex; flex-direction: column; gap: 12px; }
 .ed-titulo { color: var(--texto); font-size: 16px; font-weight: 600; }
 #ed-idea, #ed-tono, #ed-genero, #ed-caps { background: var(--oceano); border: 1px solid var(--borde); border-radius: 10px; color: var(--texto); font-family: 'Inter'; font-size: 14px; padding: 10px 12px; width: 100%; }
@@ -470,6 +490,7 @@ body.modo-incubadora #vista-incubadora { display: flex; }
       <!-- Oculta a pedido de Yoel: no debe aparecer en el Studio, solo "Libros" (Crear) queda visible.
            El código y la ruta siguen intactos por si se reactiva más adelante. -->
       <button class="tv-btn" id="tv-incubadora" onclick="verVista('incubadora')"><span class="ico" id="ico-tv-incubadora"></span><span>Incubadora</span></button>
+      <button class="tv-btn" id="tv-agentes" onclick="verVista('agentes')"><span class="ico" id="ico-tv-agentes"></span><span>Agentes</span></button>
     </div>
   </div>
 
@@ -620,6 +641,14 @@ body.modo-incubadora #vista-incubadora { display: flex; }
     </div>
   </div>
 
+  <div id="vista-agentes">
+    <div class="ag-cabecera">
+      <h2>Desarrollo de cada agente</h2>
+      <p>El progreso sube por dos caminos: lo que conversas con cada uno, y lo que investiga por su cuenta cada varias horas — nunca se resetea.</p>
+    </div>
+    <div id="ag-lista" class="ag-grid"></div>
+  </div>
+
   <!-- ═══ VISTA MONITOR · Centro de Control ═══ -->
   <div id="vista-monitor">
     <div class="latido" id="latido"></div>
@@ -678,7 +707,8 @@ const ICONOS = {
   activity: '<polyline points="22 12 18 12 15 21 9 3 6 12 2 12"/>',
   chat:     '<path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/>',
   download: '<path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/>',
-  maximizar:'<polyline points="15 3 21 3 21 9"/><polyline points="9 21 3 21 3 15"/><line x1="21" y1="3" x2="14" y2="10"/><line x1="3" y1="21" x2="10" y2="14"/>'
+  maximizar:'<polyline points="15 3 21 3 21 9"/><polyline points="9 21 3 21 3 15"/><line x1="21" y1="3" x2="14" y2="10"/><line x1="3" y1="21" x2="10" y2="14"/>',
+  team:     '<path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M23 21v-2a4 4 0 0 0-3-3.87"/><path d="M16 3.13a4 4 0 0 1 0 7.75"/>'
 };
 function icono(nombre, tam) {
   const p = ICONOS[nombre] || ICONOS.engranaje;
@@ -1085,15 +1115,18 @@ function verVista(v) {
   document.body.classList.toggle("modo-editorial", v === "editorial");
   document.body.classList.toggle("modo-libreria", v === "libreria");
   document.body.classList.toggle("modo-incubadora", v === "incubadora");
+  document.body.classList.toggle("modo-agentes", v === "agentes");
   document.getElementById("tv-chat").classList.toggle("activa", v === "chat");
   document.getElementById("tv-monitor").classList.toggle("activa", v === "monitor");
   document.getElementById("tv-biblioteca").classList.toggle("activa", v === "biblioteca");
   document.getElementById("tv-editorial").classList.toggle("activa", v === "editorial");
   document.getElementById("tv-libreria").classList.toggle("activa", v === "libreria");
   document.getElementById("tv-incubadora").classList.toggle("activa", v === "incubadora");
+  document.getElementById("tv-agentes").classList.toggle("activa", v === "agentes");
   if (v === "monitor") iniciarMonitor(); else detenerMonitor();
   if (v === "biblioteca") cargarBiblioteca();
   if (v === "incubadora") { cargarProyectosIncubadora(); cargarPropuestasPAS(); }
+  if (v === "agentes") cargarVistaAgentes();
 }
 function iniciarMonitor() {
   actualizarEstado();
@@ -1104,6 +1137,32 @@ function detenerMonitor() {
   if (intervaloEstado) clearInterval(intervaloEstado);
   if (fuenteLogs) { fuenteLogs.close(); fuenteLogs = null; }
 }
+async function cargarVistaAgentes() {
+  const cont = document.getElementById("ag-lista");
+  cont.innerHTML = '<div class="ed-estado">Cargando el desarrollo de cada agente…</div>';
+  try {
+    const r = await fetch(`${API_BASE}/rango-agentes`);
+    const d = await r.json();
+    if (!d.ok || !d.agentes.length) { cont.innerHTML = '<div class="ed-estado">Aún no hay datos de progreso.</div>'; return; }
+    cont.innerHTML = d.agentes.map(a => {
+      const estrellas = "★".repeat(a.estrellas) + "☆".repeat(4 - a.estrellas);
+      const anchoBarra = Math.min(100, (a.porcentaje / 1000) * 100);
+      return `
+        <div class="ag-card">
+          <div class="ag-nombre">${a.nombre}</div>
+          <div class="ag-rango">${a.rango}</div>
+          <div class="ag-estrellas">${estrellas}</div>
+          <div class="ag-barra"><i style="width:${anchoBarra}%"></i></div>
+          <div class="ag-pct">${a.porcentaje}% · ${a.mb} MB de conocimiento</div>
+          <div class="ag-stats">
+            <span><b>${a.mensajes}</b> mensajes</span>
+            <span><b>${a.hallazgos}</b> investigado por su cuenta</span>
+          </div>
+        </div>`;
+    }).join("");
+  } catch(e) { cont.innerHTML = '<div class="ed-estado">No se pudo cargar el desarrollo de los agentes.</div>'; }
+}
+
 async function cargarRangoSistema() {
   const cont = document.getElementById("rango-sistema");
   try {

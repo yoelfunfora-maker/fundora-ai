@@ -900,10 +900,12 @@ async function transcribirYEnviar(blob) {
       entrada.value = d.texto.trim();
       origenVoz = true;   // este mensaje vino de hablar → la respuesta también debe hablarse
       enviar();
+    } else {
+      alert("No se pudo transcribir: " + (d.error || "no se detectó ningún texto en el audio. Intenta de nuevo, hablando un poco más fuerte o más cerca del micrófono."));
     }
   } catch(e) {
     entrada.placeholder = "Escribe tu mensaje…";
-    alert("No se pudo transcribir el audio.");
+    alert("No se pudo transcribir el audio: " + e.message);
   }
 }
 

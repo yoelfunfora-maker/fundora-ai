@@ -1099,7 +1099,8 @@ function nombreHerramienta(h) {
     generar_audio: "generar audio", generar_video: "generar video",
     generar_pdf: "crear un PDF", ejecutar_comando: "ejecutar un comando",
     leer_archivo: "leer un archivo", listar_archivos: "listar archivos",
-    delegar_tarea: "delegarle la tarea a otro agente", proponer_cambio_pas: "proponer un cambio a PAS"
+    delegar_tarea: "delegarle la tarea a otro agente", proponer_cambio_pas: "proponer un cambio a PAS",
+    buscar_web: "buscar en internet"
   };
   return m[h] || h;
 }
@@ -1244,6 +1245,22 @@ const HERRAMIENTAS = {
       });
     }
   },
+  buscar_web: {
+    def: { type: "function", function: {
+      name: "buscar_web",
+      description: "Busca información actual en internet en este mismo momento (noticias, precios, datos recientes) -- a diferencia de tu conocimiento entrenado, esto trae resultados de hoy. Úsala cuando el usuario pregunte algo que pueda haber cambiado recientemente, o pida explícitamente que busques en la web.",
+      parameters: { type: "object", properties: {
+        consulta: { type: "string", description: "Qué buscar, en pocas palabras clave (igual que buscarías en Google)" }
+      }, required: ["consulta"] }
+    }},
+    run: async (a) => {
+      try {
+        const resultados = await buscarWebTavily(a.consulta);
+        const resumen = resultados.map(r => `• ${r.title}: ${(r.content||"").slice(0,300)} (${r.url})`).join("\n");
+        return { ok: true, tipo: "busqueda_web", resultados: resumen || "Sin resultados" };
+      } catch(e) { return { ok: false, error: e.message }; }
+    }
+  },
   proponer_cambio_pas: {
     def: { type: "function", function: {
       name: "proponer_cambio_pas",
@@ -1300,6 +1317,7 @@ REGLAS ABSOLUTAS DE USO DE HERRAMIENTAS:
 2. Si la tarea necesita varios pasos (ej: escribir código Y guardarlo en un archivo), ejecuta las herramientas UNA TRAS OTRA. Después de escribir_codigo, si hay que guardarlo, llama a guardar_archivo INMEDIATAMENTE en tu siguiente turno.
 3. NO te detengas a mitad de una tarea. Sigue llamando herramientas hasta que TODO esté hecho.
 3b. YA PUEDES VER: si generaste una imagen o un video y el usuario pregunta tu opinión, cómo quedó, o pide que lo describas/critiques — usa mirar_imagen con la URL que te devolvió generar_imagen o generar_video ANTES de responder. No opines a ciegas basándote solo en el prompt que escribiste; mira de verdad y comenta lo que realmente ves.
+3c. YA PUEDES BUSCAR EN INTERNET: si te preguntan algo que pueda haber cambiado (noticias, precios, eventos recientes, "¿sigue existiendo X?"), o te piden explícitamente que busques en la web, usa buscar_web ANTES de responder desde tu memoria entrenada — tu conocimiento tiene un límite de fecha, la búsqueda no.
 4. Cuando la tarea esté completa, responde con NATURALIDAD Y CALIDEZ, como una persona real conversando: comenta lo que hiciste, aporta una opinión o una sugerencia útil, y si tiene sentido pregunta el siguiente paso. JAMÁS respondas con frases secas de robot ("logo generado", "tarea completada", "vídeo generado para X") — eso suena a alguien dormido. Ponle vida, criterio y cercanía.
 5. FORMATO DE TU RESPUESTA FINAL: SIEMPRE texto plano, natural y directo, como hablaría una persona. NUNCA respondas en JSON ni con estructuras tipo {"accion":...} o {"texto":...} — eso son tripas internas que el usuario JAMÁS debe ver. IDIOMA: responde SIEMPRE en el MISMO idioma en que te escribe o te habla el usuario (español, inglés, o el que sea) — nunca cambies de idioma por tu cuenta.
 6. CONTEXTO: recuerdas los mensajes anteriores de esta conversación (están más arriba en el hilo). Si el usuario dice "la imagen", "eso", "explícamelo", "¿qué significa?", "el archivo anterior" y similares, se refiere a algo que YA ocurrió antes; NO lo trates como un pedido nuevo ni lo generes de cero — responde sobre lo que ya existe en el hilo.
